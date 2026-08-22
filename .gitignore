@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+.venv/
+
+# Old project (unrelated)
+car-factory-electrical-dashboard/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Backup files
+*.backup
+*.bak
+*.py.bak
+
+# Large model / wheel artifacts (keep outside git)
+*.gguf
+*.whl
+
+# SQLite runtime artifacts
+*.db
+*.db-journal
+*.sqlite3
+
+# Runtime audit logs
+*.jsonl
