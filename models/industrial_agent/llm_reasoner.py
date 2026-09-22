@@ -51,6 +51,7 @@ class LLMReasoner:
         mode: OperatingMode,
         findings: List[Finding],
         snapshots: List[EquipmentSnapshot],
+        stats: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> str:
         finding_lines = []
         for f in findings[:12]:
@@ -68,6 +69,22 @@ class LLMReasoner:
                 f"lockout={s.lockout_status}, hb={s.heartbeat}"
             )
 
+        # Inject 24-hour statistical summary from SQLite
+        stats_lines = []
+        for eq_id, st in (stats or {}).items():
+            if not st or st.get("sample_count", 0) == 0:
+                stats_lines.append(f"{eq_id} 24h: no historical data")
+                continue
+            last_trip = st.get("minutes_since_last_trip", -1)
+            last_trip_str = f"{last_trip}min ago" if last_trip >= 0 else "never"
+            stats_lines.append(
+                f"{eq_id} 24h: I_mean={st['current_mean']}A "
+                f"(sigma={st['current_std']}), "
+                f"theta_max={st['theta_max']}%, "
+                f"alarms_1h={st['alarm_count_1h']}, "
+                f"last_trip={last_trip_str}, n={st['sample_count']}"
+            )
+
         prompt = f"""You are NEXUS SCADA Industrial Supervisor AI.
 You assist operators and shift engineers in a car factory electrical system.
 
@@ -77,16 +94,20 @@ Operating mode: {mode.value}
 Recent equipment snapshots:
 {chr(10).join(snapshot_lines) if snapshot_lines else "No snapshot data."}
 
+24-hour statistical context (SQLite history):
+{chr(10).join(stats_lines) if stats_lines else "No statistics available."}
+
 Active findings:
 {chr(10).join(finding_lines) if finding_lines else "No active findings."}
 
 Rules:
 1. Be factual. Do not invent faults.
-2. If everything is normal, say NOMINAL.
-3. If abnormal, give one likely diagnosis.
-4. Recommend one safe operator action.
-5. Never recommend bypassing safety, clearing E-STOP automatically, or restarting locked equipment.
-6. Respond ONLY with valid JSON:
+2. Use the 24-hour statistics to distinguish sustained trends from transient spikes.
+3. If everything is normal, say NOMINAL.
+4. If abnormal, give one likely diagnosis.
+5. Recommend one safe operator action.
+6. Never recommend bypassing safety, clearing E-STOP automatically, or restarting locked equipment.
+7. Respond ONLY with valid JSON:
 {{
   "diagnosis": "short diagnosis",
   "severity": "low|medium|high|critical",
@@ -103,6 +124,7 @@ Rules:
         mode: OperatingMode,
         findings: List[Finding],
         snapshots: List[EquipmentSnapshot],
+        stats: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Optional[Dict[str, Any]]:
         if not self.available():
             return None
@@ -112,7 +134,7 @@ Rules:
             return None
 
         self.last_call_time = now
-        prompt = self.build_prompt(state, mode, findings, snapshots)
+        prompt = self.build_prompt(state, mode, findings, snapshots, stats=stats)
 
         try:
             llm = getattr(self.engine, "llm", None)

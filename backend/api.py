@@ -266,7 +266,7 @@ async def agent_background_loop() -> None:
     Background supervisor loop.
 
     Pipeline:
-        Modbus HR[120] + SQLite latest telemetry
+        Modbus HR[120] + SQLite latest telemetry + periodic 24h statistics
             -> IndustrialCognitiveAgent
             -> findings / recommendations / audit
     """
@@ -277,7 +277,23 @@ async def agent_background_loop() -> None:
                 equipment_data = await collect_equipment_data()
 
                 if equipment_data:
-                    await asyncio.to_thread(agent.ingest_data, equipment_data, system_status)
+                    stats_cycle = getattr(agent_background_loop, "cycle", 0) + 1
+                    agent_background_loop.cycle = stats_cycle
+
+                    # Defensive: immune to future agent refactors that may rename/remove _latest_stats
+                    stats_payload = getattr(agent, "_latest_stats", None) or {}
+                    # Every 5 cycles (~5 seconds), fetch 24-hour statistics from SQLite
+                    if stats_cycle % 5 == 1 or not stats_payload:
+                        stats_payload = {
+                            eq_id: await asyncio.to_thread(
+                                db.get_equipment_statistics, eq_id, 24
+                            )
+                            for eq_id in equipment_data
+                        }
+
+                    await asyncio.to_thread(
+                        agent.ingest_data, equipment_data, system_status, stats_payload
+                    )
 
         except asyncio.CancelledError:
             raise
@@ -424,20 +440,28 @@ async def health_check():
 
 @app.get("/api/equipment")
 async def get_all_equipment():
-    """Get status of all equipment. Missing equipment is returned as stale."""
+    """Get status of all equipment. All entries use consistent wrapped shape."""
     result: Dict[str, Any] = {}
 
     for eq_id in EQUIPMENT_IDS:
         cached = await equipment_cache.get(eq_id)
 
         if cached is not None:
-            result[eq_id] = cached
+            result[eq_id] = {
+                "equipment_id": eq_id,
+                "stale": False,
+                "data": cached,
+            }
             continue
 
         data = await asyncio.to_thread(db.get_latest_data, eq_id)
 
         if data:
-            result[eq_id] = data
+            result[eq_id] = {
+                "equipment_id": eq_id,
+                "stale": False,
+                "data": data,
+            }
             await equipment_cache.set(eq_id, data)
         else:
             result[eq_id] = {

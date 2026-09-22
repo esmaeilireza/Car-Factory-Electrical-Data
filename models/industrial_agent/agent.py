@@ -59,6 +59,7 @@ class IndustrialCognitiveAgent:
 
         self.anomaly_log: Deque[Dict[str, Any]] = deque(maxlen=self.config.anomaly_log_len)
         self._logged_fingerprints: Dict[str, float] = {}
+        self._latest_stats: Dict[str, Dict[str, Any]] = {}
 
         self.rule_engine = RuleEngine(self.config)
         self.trend_engine = TrendEngine(self.config)

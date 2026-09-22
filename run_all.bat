@@ -6,11 +6,10 @@ REM ============================================================================
 REM  NEXUS SCADA - Production-Grade Distributed Launcher
 REM
 REM  Component Topology:
-REM    [1] PLC Simulator  : Modbus TCP Server (127.0.0.1:5020)
-REM    [2] Data Generator : Sensor Telemetry Feed -> Modbus
-REM    [3] Backend API    : FastAPI + Uvicorn + LLM Worker (127.0.0.1:8000)
-REM    [4] Analytics UI   : Streamlit Dashboard (127.0.0.1:8501)
-REM    [5] Operator HMI   : Tkinter Native Industrial GUI
+REM    [1] PLC Simulator  : Modbus TCP Server + Internal Telemetry (127.0.0.1:5020)
+REM    [2] Backend API    : FastAPI + Uvicorn + LLM Worker (127.0.0.1:8000)
+REM    [3] Analytics UI   : Streamlit Dashboard (127.0.0.1:8501)
+REM    [4] Operator HMI   : Tkinter Native Industrial GUI
 REM ============================================================================
 
 REM --- Path Normalization & Environment Setup ---
@@ -21,6 +20,9 @@ set "MODEL_PATH=%ROOT%models\qwen2.5-coder-1.5b-instruct-q6_k.gguf"
 
 :: CRITICAL: Set root directory as PYTHONPATH to ensure absolute package resolution
 set "PYTHONPATH=%ROOT%"
+
+:: Explicitly clear API key for dev mode (auth disabled unless intentionally set)
+set "NEXUS_API_KEY="
 
 if /i "%DEBUG%"=="1" (
     set "SCADA_AI_VERBOSE=1"
@@ -82,20 +84,16 @@ echo ===========================================================================
 echo   STAGE 2: Sequential Component Deployment
 echo ============================================================================
 
-REM --- Step 1: Launch PLC Simulator (Modbus Server) ---
-echo [1/5] Starting PLC Modbus Server (TCP 127.0.0.1:5020)...
-start "NEXUS-1-PLC" cmd /k "title NEXUS PLC SIMULATOR && cd /d "%ROOT%" && "%VENV_PY%" plc_simulator\modbus_server.py"
+REM --- Step 1: Launch PLC Simulator (includes telemetry generation internally) ---
+echo [1/4] Starting PLC Modbus Server (TCP 127.0.0.1:5020)...
+start "NEXUS-1-PLC" /D "%ROOT%" cmd /k "title NEXUS PLC SIMULATOR && "%VENV_PY%" plc_simulator\modbus_server.py"
 
 REM Give Modbus server a 2-second lead time to bind socket :5020
 timeout /t 2 /nobreak >nul
 
-REM --- Step 2: Launch Telemetry Data Generator ---
-echo [2/5] Starting Telemetry Data Generator (Sensor Feed)...
-start "NEXUS-DATA-GEN" cmd /k "title NEXUS DATA GENERATOR && cd /d "%ROOT%" && "%VENV_PY%" plc_simulator\data_generator.py"
-
-REM --- Step 3: Launch Backend API Engine (FastAPI via Uvicorn) ---
-echo [3/5] Starting Backend API Server (Uvicorn on 127.0.0.1:8000)...
-start "NEXUS-2-API" cmd /k "title NEXUS BACKEND API && cd /d "%ROOT%" && "%VENV_PY%" -m uvicorn backend.api:app --host 127.0.0.1 --port 8000 --log-level info"
+REM --- Step 2: Launch Backend API Engine (FastAPI via Uvicorn) ---
+echo [2/4] Starting Backend API Server (Uvicorn on 127.0.0.1:8000)...
+start "NEXUS-2-API" /D "%ROOT%" cmd /k "title NEXUS BACKEND API && "%VENV_PY%" -m uvicorn backend.api:app --host 127.0.0.1 --port 8000 --log-level info"
 
 echo.
 echo ============================================================================
@@ -138,20 +136,19 @@ echo ===========================================================================
 echo   STAGE 4: Launching Human-Machine Interfaces (HMI & Dashboard)
 echo ============================================================================
 
-REM --- Step 4: Launch Streamlit Analytics Dashboard ---
-echo [4/5] Starting Streamlit Analytics Dashboard (127.0.0.1:8501)...
-start "NEXUS-3-UI" cmd /k "title NEXUS STREAMLIT DASHBOARD && cd /d "%ROOT%" && "%VENV_PY%" -m streamlit run dashboard\streamlit_app.py --server.port 8501 --server.headless false"
+REM --- Step 3: Launch Streamlit Analytics Dashboard ---
+echo [3/4] Starting Streamlit Analytics Dashboard (127.0.0.1:8501)...
+start "NEXUS-3-UI" /D "%ROOT%" cmd /k "title NEXUS STREAMLIT DASHBOARD && "%VENV_PY%" -m streamlit run dashboard\streamlit_app.py --server.port 8501 --server.headless false"
 
-REM --- Step 5: Launch Native Tkinter HMI ---
-echo [5/5] Starting Native Industrial Operator HMI (Tkinter)...
-start "NEXUS-4-HMI" cmd /k "title NEXUS INDUSTRIAL HMI && cd /d "%ROOT%" && "%VENV_PY%" hmi\hmi_gui.py"
+REM --- Step 4: Launch Native Tkinter HMI ---
+echo [4/4] Starting Native Industrial Operator HMI (Tkinter)...
+start "NEXUS-4-HMI" /D "%ROOT%" cmd /k "title NEXUS INDUSTRIAL HMI && "%VENV_PY%" hmi\hmi_gui.py"
 
 echo.
 echo ============================================================================
 echo   SYSTEM DEPLOYMENT SUCCESSFUL
 echo ============================================================================
 echo   [+] Modbus PLC TCP Server : 127.0.0.1:5020
-echo   [+] Telemetry Generator   : Active -> Modbus Registers
 echo   [+] Backend REST & AI     : http://127.0.0.1:8000
 echo   [+] Interactive OpenAPI   : http://127.0.0.1:8000/docs
 echo   [+] Streamlit UI          : http://127.0.0.1:8501

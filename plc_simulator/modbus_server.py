@@ -17,6 +17,8 @@ FIXES APPLIED:
 - Backend errors logged explicitly (no silent failures)
 - Audit file flushed + locked on every write (no data loss on crash)
 - Production-ready auth: X-API-Key header sent when NEXUS_API_KEY is set
+- Payload keys aligned to DB schema (theta_per_mille, energy_kwh, status, running_time_min)
+- MOTOR_STATE_NAMES defined for semantic clarity; wire format stays int for consumer safety
 """
 import asyncio
 import logging
@@ -40,6 +42,18 @@ logging.basicConfig(
     datefmt='%H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+# ==========================================
+# Semantic Motor State Labels
+# ==========================================
+# Matches STATUS_MAP in dashboard/streamlit_app.py exactly.
+# Wire format remains int to prevent breakage in consumers that do int(d.get("status", 0)).
+MOTOR_STATE_NAMES = {
+    0: "STOPPED",
+    1: "RUNNING",
+    2: "START PENDING",
+    3: "LOCKOUT",
+}
 
 # ==========================================
 # Backend Integration (Non-Blocking)
@@ -121,7 +135,7 @@ async def audit_log(event_type: str, source: str, address: int,
             _audit_file.write(line)
             _audit_file.flush()       # FIX: Immediate flush prevents data loss on crash
 
-    logger.info(f"[AUDIT] {event_type} addr={address} {old_value}\u2192{new_value} [{result}] from {source}")
+    logger.info(f"[AUDIT] {event_type} addr={address} {old_value}→{new_value} [{result}] from {source}")
 
 
 async def check_rate_limit(source_ip: str) -> bool:
@@ -282,6 +296,9 @@ async def update_plc_data(context):
             now = time.time()
             if now - last_backend_send >= 1.0:
                 for eq_id, eq in plc.equipment.items():
+                    # Keys aligned to database.py schema exactly.
+                    # status sent as int to match consumer expectations (int cast in dashboard).
+                    # MOTOR_STATE_NAMES available for logging/debugging; wire format stays numeric.
                     data = {
                         'voltage': eq.data.voltage,
                         'current': eq.data.current,
@@ -290,16 +307,16 @@ async def update_plc_data(context):
                         'apparent_power': eq.data.apparent_power,
                         'power_factor': eq.data.power_factor,
                         'frequency': eq.data.frequency,
-                        'energy': eq.data.energy,
-                        'motor_status': int(eq._motor_state),
+                        'energy_kwh': eq.data.energy,
+                        'status': int(eq._motor_state),
                         'alarm': bool(eq.protection.alarm_word),
                         'alarm_code': eq.protection.trip_word,
-                        'running_time': eq.data.running_time,
+                        'running_time_min': eq.data.running_time,
                         'load': eq.data.load,
                         'temperature': eq.data.temperature,
                         'trip_word': eq.protection.trip_word,
                         'alarm_word': eq.protection.alarm_word,
-                        'theta': eq.protection.theta,
+                        'theta_per_mille': int(eq.protection.theta * 1000),
                         'trip_count': eq.protection.trip_count,
                         'heartbeat': eq._heartbeat,
                     }
@@ -341,21 +358,21 @@ def create_modbus_context():
 def print_startup_banner():
     print()
     print("=" * 70)
-    print("\u26a1 DELTA PLC SIMULATOR - Car Factory")
-    print("\U0001f6e1\ufe0f  WITH ANSI PROTECTION + E-STOP LATCH")
+    print("⚡ DELTA PLC SIMULATOR - Car Factory")
+    print("🛡️  WITH ANSI PROTECTION + E-STOP LATCH")
     print("=" * 70)
-    print(f"\U0001f310 IP: 127.0.0.1  |  Port: 5020 (localhost only)")
-    print(f"\U0001f50c Protocol: Modbus TCP")
-    print(f"\U0001f194 Slave ID: 1 (explicit)")
-    print(f"\U0001f4ca Register Map: 108 holding registers (18/equipment)")
-    print(f"\U0001f4ca System Status Word: HR[{SYS_STATUS_ADDR}]")
+    print(f"🌐 IP: 127.0.0.1  |  Port: 5020 (localhost only)")
+    print(f"🔌 Protocol: Modbus TCP")
+    print(f"🆔 Slave ID: 1 (explicit)")
+    print(f"📊 Register Map: 108 holding registers (18/equipment)")
+    print(f"📊 System Status Word: HR[{SYS_STATUS_ADDR}]")
     print(f"   bit 0 = E-STOP latched")
     print(f"   bit 1 = any equipment tripped")
-    print(f"\u2699\ufe0f  zero_mode: True")
-    print(f"\U0001f512 Security: Write allowlist + Rate limit ({RATE_LIMIT_WRITES_PER_SEC}/s)")
-    print(f"\U0001f4dd Audit: {AUDIT_LOG_PATH}")
+    print(f"⚙️  zero_mode: True")
+    print(f"🔒 Security: Write allowlist + Rate limit ({RATE_LIMIT_WRITES_PER_SEC}/s)")
+    print(f"📝 Audit: {AUDIT_LOG_PATH}")
     print("-" * 70)
-    print("\U0001f3ed EQUIPMENT (with ANSI protection):")
+    print("🏭 EQUIPMENT (with ANSI protection):")
     print("-" * 70)
 
     eq_info = [
@@ -368,24 +385,24 @@ def print_startup_banner():
     ]
 
     for eq_id, name, offset in eq_info:
-        print(f"  \u23f9\ufe0f  {eq_id:8s} | {name:18s} | Offset {offset:3d}-{offset+17:3d} | Motor: OFF")
+        print(f"  ⏹️  {eq_id:8s} | {name:18s} | Offset {offset:3d}-{offset+17:3d} | Motor: OFF")
 
     print("-" * 70)
-    print("\U0001f39b\ufe0f  COIL MAP:")
+    print("🎛️  COIL MAP:")
     print("    CO[0-5]: Motor START/STOP per equipment")
     print("    CO[6]  : E-STOP ALL (latches globally)")
     print("    CO[7]  : RESET (clears E-STOP latch + per-eq lockouts)")
     print("-" * 70)
-    print("\U0001f4ca PER-EQUIPMENT HR (offset+N):")
-    print("    +8 : motor_state (0=STOP,1=RUN,2=PENDING,3=LOCKOUT)")
+    print("📊 PER-EQUIPMENT HR (offset+N):")
+    print("    +8 : motor_state (0=STOPPED,1=RUNNING,2=START PENDING,3=LOCKOUT)")
     print("    +10: trip_word   (ANSI fault bitmask)")
     print("    +13: alarm_word  (ANSI warning bitmask)")
     print("    +14: lockout     (1=latched, 0=clear)")
-    print("    +15: theta \u00d7 1000 (thermal \u2030)")
+    print("    +15: theta × 1000 (thermal ‰)")
     print("    +16: trip_count  (lifetime)")
     print("    +17: heartbeat   (watchdog)")
     print("-" * 70)
-    print("\U0001f4a1 Press Ctrl+C to stop the server")
+    print("💡 Press Ctrl+C to stop the server")
     print("=" * 70)
     print()
 
@@ -448,7 +465,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(run_modbus_server())
     except KeyboardInterrupt:
-        print("\n\U0001f44b Server stopped by user (Ctrl+C)")
+        print("\n👋 Server stopped by user (Ctrl+C)")
     except Exception as e:
         logger.error(f"Server crashed: {e}")
         import traceback

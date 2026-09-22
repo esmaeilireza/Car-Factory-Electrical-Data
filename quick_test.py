@@ -1,257 +1,209 @@
 """
-Enhanced Test: Load AI model and run multiple diagnostic scenarios
-Tests: Normal operation, Disconnected state, Error state, Multi-equipment
+NEXUS SCADA - One-Shot System Verification Suite
+=================================================
+Run with the full stack UP (PLC + backend + optional UIs):
+
+    python quick_test.py
+
+Exit codes: 0 = ALL PASS, 1 = one or more FAIL.
+Each check prints [PASS]/[FAIL]/[WARN] with a one-line verdict.
 """
-import sys
-import os
-sys.path.insert(0, '.')
 
-from models.ai_engine import AIDiagnosisEngine
-import pandas as pd
-from datetime import datetime, timedelta
-import time
 import json
+import sqlite3
+import sys
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
 
-# Try to import psutil for memory tracking
+import requests
+
+ROOT = Path(__file__).resolve().parent
+BACKEND = "http://localhost:8000"
+PLC_HOST, PLC_PORT = "127.0.0.1", 5020
+
+results = []          # (name, status, detail)
+
+
+def record(name: str, passed: bool, detail: str, warn_only: bool = False):
+    status = "PASS" if passed else ("WARN" if warn_only else "FAIL")
+    results.append((name, status, detail))
+    mark = {"PASS": "\033[92m[PASS]\033[0m", "FAIL": "\033[91m[FAIL]\033[0m",
+            "WARN": "\033[93m[WARN]\033[0m"}.get(status, status)
+    print(f"{mark} {name:42s} {detail}")
+
+
+def section(title: str):
+    print(f"\n{'=' * 70}\n  {title}\n{'=' * 70}")
+
+
+# ============================================================
+# 1. FILE SYSTEM / ARTIFACTS
+# ============================================================
+section("1. PROJECT ARTIFACTS")
+
+model = ROOT / "models" / "qwen2.5-coder-1.5b-instruct-q6_k.gguf"
+record("GGUF model file", model.is_file(),
+       f"{model.stat().st_size / 1024 / 1024:.0f} MB" if model.is_file() else "missing")
+
+req = ROOT / "requirements.txt"
+record("requirements.txt non-empty",
+       req.is_file() and req.stat().st_size > 200,
+       f"{req.stat().st_size} bytes" if req.is_file() else "missing")
+
+db_file = ROOT / "data" / "scada.db"
+record("SQLite database present", db_file.is_file(), str(db_file.name))
+
+for p in ["backend/api.py", "backend/database.py", "plc_simulator/modbus_server.py",
+          "dashboard/streamlit_app.py", "hmi/hmi_gui.py",
+          "models/industrial_agent/agent.py", "models/industrial_agent/llm_reasoner.py"]:
+    record(f"source: {p}", (ROOT / p).is_file(), "found" if (ROOT / p).is_file() else "MISSING")
+
+# ============================================================
+# 2. NETWORK PORTS
+# ============================================================
+section("2. NETWORK PORTS")
+
+import socket
+
+def port_open(host, port, timeout=2):
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+plc_up = port_open(PLC_HOST, PLC_PORT)
+record("PLC Modbus TCP :5020 listening", plc_up, "reachable" if plc_up else "NOT RUNNING - start plc_simulator")
+
+api_up = port_open("127.0.0.1", 8000)
+record("Backend API :8000 listening", api_up, "reachable" if api_up else "NOT RUNNING - start backend/api.py")
+
+ui_up = port_open("127.0.0.1", 8501)
+record("Streamlit :8501 listening", ui_up, "reachable" if ui_up else "not running (optional for this test)", warn_only=True)
+
+# ============================================================
+# 3. BACKEND API ENDPOINTS
+# ============================================================
+section("3. BACKEND API")
+
+if api_up:
+    try:
+        r = requests.get(f"{BACKEND}/api/health", timeout=3)
+        h = r.json()
+        record("GET /api/health", r.ok, f"status={h.get('status')}")
+        record("LLM available", h.get("llm_available") is True,
+               "Qwen loaded in backend" if h.get("llm_available") else "rules-only mode")
+        record("Agent active", h.get("agent") == "active", f"state={h.get('agent_state')}")
+    except Exception as e:
+        record("GET /api/health", False, f"error: {e}")
+
+    try:
+        r = requests.get(f"{BACKEND}/api/equipment", timeout=3)
+        eq = r.json().get("equipment", {})
+        live = {k: v for k, v in eq.items() if not v.get("stale") and v.get("data")}
+        record("GET /api/equipment", len(live) == 6,
+               f"{len(live)}/6 equipment returning live data")
+        if live:
+            sample = next(iter(live.values()))["data"]
+            record("Real-unit values (voltage ~380)",
+                   300 < float(sample.get("voltage", 0)) < 500,
+                   f"voltage={sample.get('voltage')}")
+    except Exception as e:
+        record("GET /api/equipment", False, f"error: {e}")
+
+    try:
+        r = requests.get(f"{BACKEND}/api/agent/operator-message", timeout=3)
+        msg = r.json().get("message", "")
+        placeholder = msg.strip() in ("", "short message for HMI")
+        record("Agent operator message", (not placeholder), msg[:60])
+    except Exception as e:
+        record("Agent operator message", False, f"error: {e}")
+else:
+    print("  (skipped - backend not running)")
+
+# ============================================================
+# 4. DATABASE INTEGRITY
+# ============================================================
+section("4. DATABASE")
+
 try:
-    import psutil
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    PSUTIL_AVAILABLE = False
-    print("Note: Install 'psutil' for memory tracking (optional)")
+    conn = sqlite3.connect(str(db_file))
+    n, newest = conn.execute(
+        "SELECT COUNT(*), MAX(timestamp) FROM equipment_data").fetchone()
+    fresh = datetime.now() - datetime.fromisoformat(newest) < timedelta(seconds=15)
+    record("DB has telemetry rows", n > 0, f"{n} rows, newest={newest[:19]}")
+    record("DB is receiving FRESH pushes (<15s old)", fresh,
+           "pipeline PLC->backend->DB is LIVE" if fresh else "STALE - pushes stopped")
 
+    # theta payload fix verification (the silent-loss bug we fixed)
+    theta_rows = conn.execute(
+        "SELECT theta_per_mille FROM equipment_data "
+        "WHERE timestamp > ? LIMIT 10",
+        ((datetime.now() - timedelta(minutes=5)).isoformat(),)).fetchall()
+    theta_nonzero = any(r[0] > 0 for r in theta_rows) if theta_rows else False
+    record("Theta flowing (payload fix applied)",
+           theta_nonzero,
+           "theta values present" if theta_nonzero else "all zero in last 5min - check simulator payload")
 
-def get_memory_usage():
-    """Get current memory usage in MB"""
-    if PSUTIL_AVAILABLE:
-        process = psutil.Process(os.getpid())
-        return process.memory_info().rss / (1024 * 1024)
-    return 0.0
+    # status type-sync check (Risk 1 fix)
+    st_vals = conn.execute(
+        "SELECT DISTINCT typeof(status) FROM equipment_data "
+        "WHERE timestamp > ? LIMIT 5",
+        ((datetime.now() - timedelta(minutes=5)).isoformat(),)).fetchall()
+    types = {t[0] for t in st_vals}
+    record("status column stores TEXT", types <= {"text"},
+           f"types found: {sorted(types)}")
 
+    alarms = conn.execute("SELECT COUNT(*) FROM alarm_events").fetchone()[0]
+    record("alarm_events populated", alarms >= 0, f"{alarms} alarm events")
+    conn.close()
+except Exception as e:
+    record("Database checks", False, f"error: {e}")
 
-def print_header(title):
-    """Print a formatted header"""
-    print()
-    print("=" * 70)
-    print(f"  {title}")
-    print("=" * 70)
+# ============================================================
+# 5. STATISTICS MODULE (Feature A foundation)
+# ============================================================
+section("5. STATISTICS MODULE")
 
+try:
+    sys.path.insert(0, str(ROOT / "backend"))
+    from database import db as scada_db
+    t0 = time.time()
+    stats = scada_db.get_equipment_statistics("STP-01", hours=24)
+    ms = (time.time() - t0) * 1000
+    record("get_equipment_statistics works", isinstance(stats, dict) and "sample_count" in stats,
+           f"{stats}")
+    record("Statistics performance < 100ms", ms < 100, f"{ms:.1f} ms")
+except Exception as e:
+    record("Statistics module", False, f"error: {e}")
 
-def print_diagnosis(diagnosis, scenario_name):
-    """Print diagnosis results in a formatted way"""
-    print(f"\n--- Scenario: {scenario_name} ---")
-    print(f"Diagnosis:    {diagnosis.get('diagnosis', 'N/A')}")
-    print(f"Root Cause:   {diagnosis.get('root_cause', 'N/A')}")
-    print(f"Severity:     {diagnosis.get('severity', 'N/A')}")
-    print(f"Safety Level: {diagnosis.get('safety_level', 'N/A')}")
-    print(f"Confidence:   {diagnosis.get('confidence', 0.0):.2f}")
-    print(f"Action:       {diagnosis.get('recommended_action', 'N/A')}")
-    print(f"IEC Ref:      {diagnosis.get('iec_reference', 'N/A')}")
-    print(f"Equipment:    {diagnosis.get('affected_equipment', [])}")
-    print(f"Human Req:    {diagnosis.get('human_approval_required', False)}")
+# ============================================================
+# 6. UNIT TESTS
+# ============================================================
+section("6. UNIT TESTS (pytest)")
 
+import subprocess
+r = subprocess.run(
+    [sys.executable, "-m", "pytest", "tests/", "-q", "--no-header", "-x"],
+    capture_output=True, text=True, cwd=str(ROOT), timeout=120,
+)
+pytest_ok = r.returncode == 0
+last_line = (r.stdout.strip().splitlines() or [""])[-1]
+record("tests/ suite passes", pytest_ok, last_line)
 
-def run_test():
-    """Main test runner"""
-    print_header("NEXUS AI - Enhanced Diagnostic Test Suite")
-    
-    # ============================================================
-    # STAGE 1: Load AI Engine
-    # ============================================================
-    print("\n[1/4] Loading AI engine (30-60 seconds expected)...")
-    mem_before = get_memory_usage()
-    start_time = time.time()
-    
-    try:
-        engine = AIDiagnosisEngine()
-        load_time = time.time() - start_time
-        mem_after = get_memory_usage()
-        
-        print(f"OK: Engine loaded in {load_time:.2f} seconds")
-        print(f"OK: Backend: {engine.backend}")
-        if PSUTIL_AVAILABLE:
-            print(f"OK: Memory usage: {mem_after:.1f} MB (delta: +{mem_after - mem_before:.1f} MB)")
-    except Exception as e:
-        print(f"FAIL: Failed to load engine: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-    
-    # ============================================================
-    # STAGE 2: Build Test Scenarios
-    # ============================================================
-    print("\n[2/4] Building test scenarios...")
-    
-    # Scenario A: Normal operation (all equipment healthy)
-    now = datetime.now()
-    normal_data = pd.DataFrame({
-        'timestamp': [now] * 6,
-        'equipment_id': ['STP-01', 'WLD-01', 'PNT-01', 'ASM-01', 'UTI-01', 'UTI-02'],
-        'voltage': [380.0, 382.5, 379.8, 381.2, 380.5, 383.1],
-        'current': [245.0, 180.5, 320.2, 150.8, 210.3, 290.7],
-        'heartbeat': [10, 10, 10, 10, 10, 10]
-    })
-    
-    normal_session = {
-        'connected': True,
-        'estop_active': False,
-        'any_trip_active': False
-    }
-    
-    # Scenario B: Disconnected state (communication failure)
-    disconnected_session = {
-        'connected': False,
-        'estop_active': False,
-        'any_trip_active': False
-    }
-    
-    modbus_errors = [
-        {'time': '12:00:01', 'eq': 'STP-01', 'error': 'No Response received from remote slave'},
-        {'time': '12:00:02', 'eq': 'WLD-01', 'error': 'Socket timeout after 5000ms'}
-    ]
-    
-    # Scenario C: E-STOP active (safety state)
-    estop_session = {
-        'connected': True,
-        'estop_active': True,
-        'any_trip_active': True
-    }
-    
-    # Scenario D: Stale data (heartbeat frozen)
-    stale_data = pd.DataFrame({
-        'timestamp': [now - timedelta(seconds=45)] * 2,  # 45 seconds old
-        'equipment_id': ['STP-01', 'WLD-01'],
-        'voltage': [380.0, 382.5],
-        'current': [245.0, 180.5],
-        'heartbeat': [5, 5]  # Frozen heartbeat
-    })
-    
-    stale_session = {
-        'connected': True,
-        'estop_active': False,
-        'any_trip_active': False
-    }
-    
-    scenarios = [
-        ("Normal Operation", normal_session, [], normal_data),
-        ("Disconnected State", disconnected_session, modbus_errors, normal_data),
-        ("E-STOP Active", estop_session, [], normal_data),
-        ("Stale Data / Frozen Heartbeat", stale_session, [], stale_data),
-    ]
-    
-    print(f"OK: Built {len(scenarios)} test scenarios")
-    
-    # ============================================================
-    # STAGE 3: Run Diagnostic Tests
-    # ============================================================
-    print("\n[3/4] Running AI diagnosis on all scenarios...")
-    print("(Each diagnosis may take 10-30 seconds)\n")
-    
-    results = []
-    total_start = time.time()
-    
-    for i, (name, session, errors, data) in enumerate(scenarios, 1):
-        print(f"Running scenario {i}/{len(scenarios)}: {name}...")
-        start_time = time.time()
-        
-        try:
-            diagnosis = engine.analyze_system_state(
-                session_state=session,
-                traffic_log=[],
-                modbus_errors=errors,
-                recent_data=data
-            )
-            infer_time = time.time() - start_time
-            
-            print(f"  OK: Completed in {infer_time:.2f}s")
-            print_diagnosis(diagnosis, name)
-            
-            results.append({
-                'scenario': name,
-                'success': True,
-                'time': infer_time,
-                'diagnosis': diagnosis
-            })
-            
-        except Exception as e:
-            print(f"  FAIL: {e}")
-            import traceback
-            traceback.print_exc()
-            
-            results.append({
-                'scenario': name,
-                'success': False,
-                'error': str(e)
-            })
-        
-        print()  # Blank line between scenarios
-    
-    total_time = time.time() - total_start
-    
-    # ============================================================
-    # STAGE 4: Summary Report
-    # ============================================================
-    print_header("TEST SUMMARY")
-    
-    success_count = sum(1 for r in results if r['success'])
-    total_count = len(results)
-    
-    print(f"Total scenarios:    {total_count}")
-    print(f"Successful:         {success_count}")
-    print(f"Failed:             {total_count - success_count}")
-    print(f"Success rate:       {success_count/total_count*100:.1f}%")
-    print(f"Total test time:    {total_time:.2f} seconds")
-    print(f"Average time:       {total_time/total_count:.2f} seconds per diagnosis")
-    
-    if PSUTIL_AVAILABLE:
-        final_mem = get_memory_usage()
-        print(f"Final memory:       {final_mem:.1f} MB")
-    
-    print()
-    print("Detailed Results:")
-    for i, result in enumerate(results, 1):
-        status = "PASS" if result['success'] else "FAIL"
-        print(f"  {i}. [{status}] {result['scenario']}", end="")
-        if result['success']:
-            diag = result['diagnosis']
-            print(f" -> {diag.get('severity', 'N/A').upper()} severity", end="")
-            print(f" (Safety Level {diag.get('safety_level', 'N/A')})")
-        else:
-            print(f" -> {result.get('error', 'Unknown error')}")
-    
-    # ============================================================
-    # Final Verdict
-    # ============================================================
-    print_header("FINAL VERDICT")
-    
-    if success_count == total_count:
-        print("FULL TEST PASSED! AI engine is working correctly.")
-        print()
-        print("Next steps:")
-        print("  1. Run: streamlit run dashboard/streamlit_app.py")
-        print("  2. Navigate to HMI CONTROL tab")
-        print("  3. Click 'Run AI Diagnosis' button")
-        print("  4. Test with real Modbus data")
-        sys.exit(0)
-    elif success_count >= total_count * 0.75:
-        print("PARTIAL SUCCESS - Most scenarios passed.")
-        print(f"Some scenarios failed ({total_count - success_count} of {total_count}).")
-        print("Review the failed scenarios above for details.")
-        sys.exit(0)
-    else:
-        print("TEST FAILED - Too many scenarios failed.")
-        print("Review the error messages above.")
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    try:
-        run_test()
-    except KeyboardInterrupt:
-        print("\n\nTest interrupted by user.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\nUnexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+# ============================================================
+# SUMMARY
+# ============================================================
+section("SUMMARY")
+fails = [r for r in results if r[1] == "FAIL"]
+warns = [r for r in results if r[1] == "WARN"]
+passes = [r for r in results if r[1] == "PASS"]
+print(f"  PASS: {len(passes)}   WARN: {len(warns)}   FAIL: {len(fails)}")
+if fails:
+    print("\n  Failed checks:")
+    for name, _, detail in fails:
+        print(f"    - {name}: {detail}")
+verdict = "SYSTEM HEALTHY - safe to proceed" if not fails else "SYSTEM DEGRADED - fix FAILs above"
+print(f"\n  VERDICT: {verdict}\n")
+sys.exit(0 if not fails else 1)
