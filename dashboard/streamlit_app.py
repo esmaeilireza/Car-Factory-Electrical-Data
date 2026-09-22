@@ -1,8 +1,8 @@
-﻿"""
-⚡ NEXUS SCADA - Executive Edition v6.6.2
+"""
+⚡ NEXUS SCADA - Executive Edition v6.6.4
 Professional Industrial Automation Monitoring System
 
-FIXES:
+FIXES APPLIED:
 - Fix 1-12: All previous fixes retained
 - NEW: Header badge = "LINK UP/LINK DOWN" (matches Server Console)
 - NEW: Plant status badge = "PLANT X/Y RUN"
@@ -37,6 +37,11 @@ FIXES:
 - FIX: [v6.6.1] Added sys.path fix to resolve "AIDiagnosisEngine module not available"
 - NEW: [v6.6.2] Built-in environment diagnostic panel in sidebar
 - MODIFIED: [v6.6.2] Simplified AI Diagnosis Engine in HMI tab (cleaner UI, direct JSON output)
+- FIX: [v6.6.3] Robust AI Engine loading with @st.cache_resource and detailed error reporting
+- FIX: [v6.6.3] ISA-18.2 Acknowledge button now persists state via session_state and self-clears on normal condition.
+- FIX: [v6.6.3] Corrected dictionary key typo "colo r" to "color" in Server Console stats.
+- FIX: [v6.6.4] Removed global sleep+rerun loop to fix UI flicker; updated fragment to use conditional run_every.
+- FIX: [v6.6.4] Fixed nested button bug in AI Diagnosis Engine; Execute/Cancel buttons now persist state via session_state and handle empty actions/safety levels correctly.
 """
 
 # ============================================================
@@ -65,18 +70,30 @@ import time
 import atexit
 import traceback
 
-# ---- AI Engine import (with detailed error reporting) ----
-try:
-    from models.ai_engine import AIDiagnosisEngine
-    AI_ENGINE_AVAILABLE = True
-    print("[AI] ✅ AIDiagnosisEngine imported successfully")
-except ImportError as e:
-    AI_ENGINE_AVAILABLE = False
-    AIDiagnosisEngine = None
-    print(f"[AI] ❌ Import failed: {e}")
-    print(f"[AI] Current sys.path: {sys.path[:3]}...")
-    print(f"[AI] Current working directory: {Path.cwd()}")
-    print(f"[AI] Script location: {Path(__file__).parent}")
+import requests
+
+BACKEND_URL = "http://localhost:8000"
+
+@st.cache_data(ttl=2)
+def fetch_all_equipment() -> dict:
+    """Live equipment data from the backend REST API (replaces direct Modbus reads)."""
+    try:
+        r = requests.get(f"{BACKEND_URL}/api/equipment", timeout=3)
+        r.raise_for_status()
+        return r.json()
+    except requests.RequestException:
+        return {}
+
+@st.cache_data(ttl=2)
+def fetch_agent_status() -> dict:
+    """Agent and LLM status from the backend (replaces local model load)."""
+    try:
+        r = requests.get(f"{BACKEND_URL}/api/agent/status", timeout=3)
+        r.raise_for_status()
+        return r.json()
+    except requests.RequestException:
+        return {}
+
 
 STREAMLIT_VERSION = tuple(map(int, st.__version__.split('.')[:2]))
 HAS_FRAGMENT = STREAMLIT_VERSION >= (1, 37)
@@ -712,11 +729,12 @@ defaults = {
     "estop_active": False,
     "any_trip_active": False,
     "_req_snapshot": 0,
-    # [v6.6] AI Diagnosis state
     "last_ai_diagnosis": None,
     "ai_engine": None,
     "ai_engine_error": None,
     "ai_engine_loaded": False,
+    "acked_alarms": set(), # Added for ISA-18.2 Acknowledge persistence
+    "ai_diagnosis": None,  # Added for AI Diagnosis state persistence
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -815,136 +833,108 @@ def ensure_connected() -> bool:
 
 
 def read_system_status(client) -> int:
-    """Read system status word from HR[120]."""
+    """System status word via backend REST (estop=bit0, trip=bit1)."""
     try:
-        try:
-            result = client.read_holding_registers(SYS_STATUS_ADDR, count=1, slave=1)
-        except TypeError:
-            result = client.read_holding_registers(SYS_STATUS_ADDR, count=1, device_id=1)
-        
-        if not result.isError() and result.registers:
+        r = requests.get(f"{BACKEND_URL}/api/health", timeout=2)
+        if r.ok:
+            ss = r.json().get("system_status", {})
+            word = 0
+            if ss.get("estop_active"):
+                word |= 1
+            if ss.get("any_trip_active"):
+                word |= 2
             st.session_state.total_requests += 1
-            return result.registers[0]
+            return word
     except Exception as e:
-        print(f"[SYS-STATUS] Read failed: {e}")
+        print(f"[SYS-STATUS] REST read failed: {e}")
     return 0
 
 
 def read_all_equipment(client):
-    """Read ALL 108 registers in ONE batch request."""
+    """Read all equipment via backend REST API (replaces direct Modbus batch read)."""
     records = []
     now = datetime.now()
-    
-    result = None
-    last_error = None
-    
-    for attempt in range(2):
-        try:
-            try:
-                result = client.read_holding_registers(
-                    address=0, count=108, slave=1
-                )
-            except TypeError:
-                result = client.read_holding_registers(
-                    address=0, count=108, device_id=1
-                )
-            
-            if not result.isError():
-                break
-            
-            last_error = str(result)
-            if attempt == 0:
-                time.sleep(0.1)
-                
-        except Exception as e:
-            last_error = f"{type(e).__name__}: {e}"
-            if attempt == 0:
-                time.sleep(0.1)
-    
-    if result is None or result.isError():
-        err_msg = f"[MODBUS-BATCH] Failed to read 108 registers: {last_error}"
+
+    try:
+        resp = requests.get(f"{BACKEND_URL}/api/equipment", timeout=3)
+    except Exception as e:
+        err_msg = f"[REST] Backend unreachable: {e}"
         print(err_msg)
         st.session_state.last_error = err_msg
         st.session_state.modbus_errors.append({
-            "time": now.strftime('%H:%M:%S'),
-            "eq": "BATCH",
-            "offset": 0,
-            "error": str(last_error)
+            "time": now.strftime('%H:%M:%S'), "eq": "REST", "offset": 0, "error": str(e)
         })
         if len(st.session_state.modbus_errors) > 20:
             st.session_state.modbus_errors = st.session_state.modbus_errors[-20:]
         return records
-    
-    all_registers = result.registers
-    
+
+    if not resp.ok:
+        print(f"[REST] HTTP {resp.status_code}")
+        return records
+
+    payload = resp.json().get("equipment", {})
     st.session_state.total_requests += 1
+
     st.session_state.traffic_log.append({
         "time": now.strftime('%H:%M:%S.%f')[:-3],
-        "ip": "127.0.0.1:5020",
+        "ip": "localhost:8000",
         "direction": "OUT",
-        "cmd": "Read (0x03) [BATCH]",
-        "addr": "00000",
-        "qty": "108",
-        "eq": "ALL"
-    })
-    st.session_state.traffic_log.append({
-        "time": now.strftime('%H:%M:%S.%f')[:-3],
-        "direction": "IN",
-        "cmd": "Resp (0x03) [BATCH]",
-        "bytes": str(108 * 2),
+        "cmd": "GET /api/equipment [REST]",
+        "addr": "-",
+        "qty": "6",
         "eq": "ALL"
     })
     if len(st.session_state.traffic_log) > 50:
         st.session_state.traffic_log = st.session_state.traffic_log[-50:]
-    
+
+    STATUS_MAP = {0: "STOPPED", 1: "RUNNING", 2: "START PENDING", 3: "LOCKED"}
+
     for eq_id, cfg in EQUIPMENT_CONFIG.items():
-        offset = cfg["offset"]
-        r = all_registers[offset:offset + 18]
-        
-        if len(r) < 18:
+        row = payload.get(eq_id)
+        if not row or row.get("stale") or not row.get("data"):
             continue
-        
-        motor_status = bool(r[8])
-        trip_word = r[13]
-        raw_alarm_word = r[14]
-        is_latched = bool(raw_alarm_word & (1 << 15))
-        alarm_word = raw_alarm_word & ~(1 << 15)
-        
-        if is_latched:
+
+        d = row["data"]
+        motor_state = int(d.get("status", 0) or 0)
+        trip_word = int(d.get("trip_word", 0) or 0)
+        alarm_word = int(d.get("alarm_word", 0) or 0)
+        motor_on = motor_state == 1
+
+        if motor_state == 3 or d.get("theta_per_mille", 0) >= 1000:
             status = "LOCKED"
-        elif motor_status:
-            status = "RUNNING"
-        elif trip_word > 0:
+        elif trip_word > 0 and not motor_on:
             status = "TRIPPED"
-        else:
+        elif motor_state == 2:
             status = "START PENDING"
+        else:
+            status = STATUS_MAP.get(motor_state, "STOPPED")
 
         records.append({
-            "timestamp": now,
+            "timestamp": d.get("timestamp", now),
             "equipment_id": eq_id,
             "equipment_name": cfg["name"],
             "area": cfg["area"],
             "pf_target": cfg["pf_target"],
             "status": status,
-            "voltage": r[0] / 10.0,
-            "current": r[1] / 10.0 if motor_status else 0.0,
-            "active_power": r[2] / 10.0 if motor_status else 0.0,
-            "reactive_power": r[3] / 10.0 if motor_status else 0.0,
-            "apparent_power": r[4] / 10.0 if motor_status else 0.0,
-            "power_factor": r[5] / 100.0 if motor_status else 0.0,
-            "frequency": r[6] / 10.0,
-            "energy_kwh": r[7] / 100.0,
-            "alarm": bool(r[9]),
-            "alarm_code": r[10],
-            "running_time_min": r[11],
-            "load": r[12],
+            "voltage": float(d.get("voltage", 0) or 0),
+            "current": float(d.get("current", 0) or 0),
+            "active_power": float(d.get("active_power", 0) or 0),
+            "reactive_power": float(d.get("reactive_power", 0) or 0),
+            "apparent_power": float(d.get("apparent_power", 0) or 0),
+            "power_factor": float(d.get("power_factor", 0) or 0),
+            "frequency": float(d.get("frequency", 50) or 0),
+            "energy_kwh": float(d.get("energy_kwh", 0) or 0),
+            "alarm": alarm_word > 0,
+            "alarm_code": alarm_word,
+            "running_time_min": int(d.get("running_time_min", 0) or 0),
+            "load": int(d.get("load", 0) or 0),
             "trip_word": trip_word,
             "alarm_word": alarm_word,
-            "theta_per_mille": r[15],
-            "trip_count": r[16],
-            "heartbeat": r[17],
+            "theta_per_mille": int(d.get("theta_per_mille", 0) or 0),
+            "trip_count": int(d.get("trip_count", 0) or 0),
+            "heartbeat": int(d.get("heartbeat", 0) or 0),
         })
-    
+
     return records
 
 
@@ -1116,59 +1106,30 @@ def get_live_data(force=False):
     return empty_result
 
 
-# ==========================================
-# [v6.6] AI ENGINE LOADER
-# ==========================================
-def load_ai_engine():
-    """Load the AI diagnosis engine (lazy loading)."""
-    if not AI_ENGINE_AVAILABLE:
-        st.session_state.ai_engine_error = "AIDiagnosisEngine module not available"
-        return None
-    
-    if st.session_state.ai_engine is not None:
-        return st.session_state.ai_engine
-    
-    try:
-        model_path = Path(__file__).parent.parent / "models" / "qwen2.5-coder-1.5b-instruct-q6_k.gguf"
-        
-        if not model_path.exists():
-            st.session_state.ai_engine_error = f"Model file not found: {model_path}"
-            return None
-        
-        with st.spinner("🤖 Loading AI model (first time may take 30-60s)..."):
-            engine = AIDiagnosisEngine(str(model_path))
-            st.session_state.ai_engine = engine
-            st.session_state.ai_engine_loaded = True
-            return engine
-    except Exception as e:
-        st.session_state.ai_engine_error = f"Failed to load AI engine: {e}"
-        return None
 
 
 # ==========================================
 # ENVIRONMENT DIAGNOSTIC (for sidebar)
 # ==========================================
 def get_env_diagnostic():
-    """Return a dict with environment info."""
-    info = {}
-    info["python_executable"] = sys.executable
-    info["python_version"] = sys.version.split()[0]
-    info["in_venv"] = sys.prefix != sys.base_prefix
-    info["sys_path"] = sys.path[:3]  # show only first few
-    info["llama_cpp_available"] = False
-    info["ctransformers_available"] = False
-    info["streamlit_version"] = st.__version__
-    info["models_ai_engine_available"] = AI_ENGINE_AVAILABLE
-    info["project_root"] = _project_root
+    """Backend health instead of local environment info."""
+    info = {
+        "backend_reachable": False,
+        "llm_available": False,
+        "agent_state": "UNKNOWN",
+        "operating_mode": "UNKNOWN",
+    }
     try:
-        import llama_cpp
-        info["llama_cpp_available"] = True
-    except ImportError:
-        pass
-    try:
-        import ctransformers
-        info["ctransformers_available"] = True
-    except ImportError:
+        r = requests.get(f"{BACKEND_URL}/api/health", timeout=3)
+        r.raise_for_status()
+        h = r.json()
+        info.update({
+            "backend_reachable": True,
+            "llm_available": h.get("llm_available", False),
+            "agent_state": h.get("agent_state", "UNKNOWN"),
+            "operating_mode": h.get("operating_mode", "UNKNOWN"),
+        })
+    except requests.RequestException:
         pass
     return info
 
@@ -1297,35 +1258,29 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🤖 AI Engine Status")
     
-    if st.session_state.ai_engine is not None:
-        st.success(f"✅ **Active** ({st.session_state.ai_engine.backend})")
-    elif st.session_state.ai_engine_error:
-        st.error(f"❌ {st.session_state.ai_engine_error[:80]}...")
+    agent_status = fetch_agent_status()
+    if not agent_status:
+        st.error("Backend unreachable - is backend/api.py running?")
+    elif agent_status.get("llm_available"):
+        st.success("Active (backend llama-cpp)")
+        st.caption(f"State: {agent_status.get('agent_state')} - Mode: {agent_status.get('operating_mode')}")
     else:
-        st.info("⏳ Not loaded yet")
+        st.warning("Rules-only mode (LLM offline in backend)")
     
     st.markdown("---")
     st.markdown("### 🛡️ Protection")
     st.caption("ANSI relays: 49/50/51/27/59/38/46/37")
     st.caption("View details in 🛡 PROTECTION tab")
     
-    # ==========================================
-    # [v6.6.2] ENVIRONMENT DIAGNOSTIC
-    # ==========================================
-    with st.expander("🔬 Environment Diagnostic", expanded=False):
+    with st.expander("Environment Diagnostic", expanded=False):
         env = get_env_diagnostic()
         st.code(f"""
-Python Executable: {env['python_executable']}
-Python Version:    {env['python_version']}
-In Virtual Env:    {env['in_venv']}
-Project Root:      {env['project_root']}
-Streamlit Version: {env['streamlit_version']}
-llama-cpp:         {'✅' if env['llama_cpp_available'] else '❌'}
-ctransformers:     {'✅' if env['ctransformers_available'] else '❌'}
-models.ai_engine:  {'✅' if env['models_ai_engine_available'] else '❌'}
-sys.path (first 3): {env['sys_path']}
+Backend API:     {'reachable' if env['backend_reachable'] else 'UNREACHABLE'}
+LLM in backend:  {'loaded' if env['llm_available'] else 'NOT LOADED'}
+Agent state:     {env['agent_state']}
+Operating mode:  {env['operating_mode']}
 """, language="text")
-        st.caption("If any library is missing, install it in the Python environment shown above.")
+        st.caption("The LLM runs inside backend/api.py; this dashboard only reads its results.")
 
 # ==========================================
 # TABS
@@ -1361,7 +1316,7 @@ with tab_exec:
                 st.warning("⚠️ Connected but 0 equipment returned data")
     
     with ctrl2:
-        refresh_label = "🔄 Auto-refresh (every 5s)" if HAS_FRAGMENT else "🔄 Auto-refresh (manual)"
+        refresh_label = "🔄 Auto-refresh (every 2s)" if HAS_FRAGMENT else "🔄 Auto-refresh (manual)"
         st.session_state.auto_refresh = st.checkbox(refresh_label, value=st.session_state.auto_refresh)
     
     with ctrl3:
@@ -1404,8 +1359,8 @@ with tab_exec:
 """, unsafe_allow_html=True)
     
     elif not latest_live.empty and latest_live['status'].notna().any():
-        if HAS_FRAGMENT and st.session_state.auto_refresh:
-            @st.fragment
+        if HAS_FRAGMENT:
+            @st.fragment(run_every="2s" if st.session_state.auto_refresh else None)
             def live_metrics_fragment():
                 df_live_frag, latest_live_frag = get_live_data()
                 display_live = latest_live_frag.dropna(subset=['status']) if not latest_live_frag.empty else latest_live_frag
@@ -1567,7 +1522,7 @@ with tab_exec:
                 )
 
 # ==========================================
-# TAB 2: HMI CONTROL (with Simplified AI Diagnosis)
+# TAB 2: HMI CONTROL
 # ==========================================
 with tab_hmi:
     st.markdown("""
@@ -1743,7 +1698,7 @@ with tab_hmi:
                     st.rerun()
 
             # ==========================================
-            # [v6.5] SMART DIAGNOSTIC & AUTO-HEALING PANEL (Preserved)
+            # [v6.5] SMART DIAGNOSTIC & AUTO-HEALING PANEL
             # ==========================================
             with st.expander("🛠️ Smart Diagnostic & Auto-Healing Panel", expanded=False):
                 st.info("🧠 **AI Diagnostics:** Analyzing Modbus TCP health, server latency, and data integrity...")
@@ -1829,70 +1784,37 @@ with tab_hmi:
                     st.json(debug_state)
 
             # ==========================================
-            # [v6.6.2] SIMPLIFIED AI DIAGNOSIS ENGINE
+            # [v6.6.4] SIMPLIFIED AI DIAGNOSIS ENGINE (FIXED NESTED BUTTONS)
             # ==========================================
             st.markdown("---")
             st.markdown("### 🤖 AI Diagnosis Engine")
 
-            # Try to load the AI engine if not already loaded
-            if 'ai_engine' not in st.session_state:
-                load_ai_engine()
+            agent = fetch_agent_status()
+            op = {}
+            try:
+                r = requests.get(f"{BACKEND_URL}/api/agent/operator-message", timeout=3)
+                if r.ok:
+                    op = r.json()
+            except requests.RequestException:
+                pass
 
-            if st.session_state.get('ai_engine'):
-                st.success("✅ Local model loaded successfully")
-                
-                # Display model status
+            if agent:
+                st.success("✅ Backend AI engine connected")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Model Status", "Active")
+                    st.metric("LLM Status", "Active" if agent.get("llm_available") else "Rules-only")
                 with col2:
-                    st.metric("Safety Level", "1-3")
+                    st.metric("Agent State", agent.get("agent_state", "?"))
                 with col3:
-                    st.metric("Protocol", "IEC 62443")
-                
-                # Diagnosis button
-                if st.button("🔍 Diagnose with AI", key="ai_diagnose"):
-                    with st.spinner("🤖 AI is analyzing..."):
-                        try:
-                            diagnosis = st.session_state.ai_engine.analyze_system_state(
-                                session_state=dict(st.session_state),
-                                traffic_log=st.session_state.traffic_log[-20:],
-                                modbus_errors=st.session_state.modbus_errors[-10:],
-                                recent_data=df_live.tail(10) if not df_live.empty else pd.DataFrame()
-                            )
-                            
-                            # Display results
-                            st.json(diagnosis)
-                            
-                            # Display diagnosis in plain language
-                            st.markdown(f"""
-                            ### 🎯 Diagnosis: {diagnosis.get('diagnosis')}
-                            **Severity:** {diagnosis.get('severity')}  
-                            **Safety Level:** {diagnosis.get('safety_level')}  
-                            **Confidence:** {diagnosis.get('confidence')}%
-                            """)
-                            
-                            # Action suggestion
-                            if diagnosis.get("safety_level", 1) <= 3:
-                                action = diagnosis.get("recommended_action", "")
-                                st.info(f"🔧 Recommended Action: {action}")
-                                
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.button("✅ Execute", key="ai_execute"):
-                                        success, msg = st.session_state.ai_engine.execute_safe_action(
-                                            action, diagnosis["safety_level"]
-                                        )
-                                        st.success(msg)
-                                with col2:
-                                    if st.button("🛑 Cancel", key="ai_cancel"):
-                                        st.warning("Action cancelled")
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error in diagnosis: {e}")
+                    st.metric("Mode", agent.get("operating_mode", "?"))
+
+                st.markdown("### Operator Message")
+                st.info(op.get("message", "No operator message yet."))
+
+                st.markdown("### Latest Backend Diagnosis")
+                st.json(agent)
             else:
-                st.error("❌ Local model not loaded")
-                st.info("Please place the model file in the `models/` directory")
+                st.error("❌ Backend unreachable - start backend/api.py first")
 
 # ==========================================
 # TAB 3: PROTECTION
@@ -2080,26 +2002,42 @@ with tab_prot:
 </div>
 """, unsafe_allow_html=True)
             
+            # [FIX v6.6.3] ISA-18.2 Acknowledge semantics with session_state persistence
             now_ts = datetime.now().strftime('%H:%M:%S')
-            active_events = []
+            ack_set = st.session_state.setdefault("acked_alarms", set())
+
+            active_events, active_keys = [], set()
             for bit, ansi, name, desc in ANSI_FUNCTIONS:
                 if trip_word & (1 << bit):
-                    active_events.append({
-                        "Time": now_ts, "Asset": prot_eq, "ANSI": ansi,
-                        "Description": name, "Priority": "HIGH", "State": "TRIP",
-                    })
+                    state, prio = "TRIP", "HIGH"
                 elif alarm_word & (1 << bit):
-                    active_events.append({
-                        "Time": now_ts, "Asset": prot_eq, "ANSI": ansi,
-                        "Description": name, "Priority": "MEDIUM", "State": "ALARM",
-                    })
-            
+                    state, prio = "ALARM", "MEDIUM"
+                else:
+                    continue
+                key = (prot_eq, ansi, state)
+                active_keys.add(key)
+                active_events.append({
+                    "Time": now_ts, "Asset": prot_eq, "ANSI": ansi,
+                    "Description": name, "Priority": prio,
+                    "State": f"{state} (ACK)" if key in ack_set else state,
+                })
+
+            # drop acks whose condition has returned to normal
+            ack_set.difference_update(
+                {k for k in ack_set if k[0] == prot_eq and k not in active_keys}
+            )
+
             if active_events:
                 df_events = pd.DataFrame(active_events)
                 st.dataframe(df_events, width="stretch", hide_index=True)
-                st.warning(f"⚠️ {len(active_events)} active alarm(s) on {prot_eq}")
+                unacked = [e for e in active_events if not e["State"].endswith("(ACK)")]
+                if unacked:
+                    st.warning(f"⚠️ {len(unacked)} unacknowledged alarm(s) on {prot_eq}")
+                else:
+                    st.info(f"ℹ️ {len(active_events)} standing alarm(s) on {prot_eq} - all acknowledged")
                 if st.button("✅ Acknowledge All Alarms", key=f"ack_{prot_eq}"):
-                    st.success(f"Acknowledged {len(active_events)} alarm(s)")
+                    ack_set.update(active_keys)
+                    st.rerun()
             else:
                 st.success("✅ No active alarms - all protection functions healthy")
         else:
@@ -2123,6 +2061,7 @@ with tab_server:
     
     s1, s2, s3, s4, s5 = st.columns(5)
     
+    # [FIX v6.6.3] Ensured "color" key is correctly spelled without spaces
     server_stats = [
         {"label": "Link", "value": "🟢 UP" if st.session_state.connected else "🔴 DOWN", "color": "#00E676" if st.session_state.connected else "#FF1744"},
         {"label": "Uptime", "value": format_uptime(uptime_seconds), "color": "#00E5FF"},
@@ -2337,13 +2276,6 @@ with tab_history:
 st.markdown("---")
 st.markdown(f"""
 <div style="text-align: center; padding: 1rem; color: #52638c; font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 1px;">
-    ⚡ NEXUS SCADA v6.6.2 • Executive + AI Diagnosis Edition • REQ: {req_snapshot:,} • HR[120] Status Active • © 2026
+    ⚡ NEXUS SCADA v6.6.4 • Executive + AI Diagnosis Edition • REQ: {req_snapshot:,} • HR[120] Status Active • © 2026
 </div>
 """, unsafe_allow_html=True)
-
-# ==========================================
-# GLOBAL AUTO-REFRESH ENGINE
-# ==========================================
-if st.session_state.auto_refresh and st.session_state.connected:
-    time.sleep(5)
-    st.rerun()

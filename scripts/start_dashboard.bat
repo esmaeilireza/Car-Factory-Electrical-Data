@@ -2,7 +2,10 @@
 title NEXUS SCADA - Streamlit Dashboard
 color 0E
 
-cd /d "D:\Machine learning\data analyze Projects\phase 3 car-factory-electrical-data"
+REM Change directory to the project root (parent of the scripts folder)
+cd /d "%~dp0.."
+
+REM Activate the virtual environment
 call "venv\Scripts\activate.bat"
 
 echo ========================================
@@ -10,7 +13,7 @@ echo   NEXUS SCADA Dashboard
 echo   http://localhost:8501
 echo ========================================
 
-cd dashboard
-streamlit run streamlit_app.py --server.port 8501
+REM Run Streamlit from the project root, pointing to the app file
+venv\Scripts\python.exe -m streamlit run dashboard\streamlit_app.py --server.port 8501
 
 pause

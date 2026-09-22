@@ -500,3 +500,51 @@ Perfect for portfolio showcase! Check it out on GitHub 👇
 │   └──────────┘  └──────────┘  └──────────────┘            │
 │                                                               │
 └─────────────────────────────────────────────────────────────┘
+ ideal runtime flow is:
+PLC simulator produces electrical values
+        ↓
+Modbus server publishes registers
+        ↓
+Backend stores latest values
+        ↓
+Industrial agent reads latest values
+        ↓
+Agent checks hard safety rules
+        ↓
+Agent detects trends/anomalies
+        ↓
+Agent asks local LLM for diagnosis
+        ↓
+Agent sends advice to HMI
+        ↓
+If unmanned and safe, agent may execute limited actions
+
+
+
+Optimized api.py
+Save your current api.py as a backup first, then replace it with this version.
+This version:
+Connects the industrial agent package.
+Loads qwen2.5-coder-1.5b-instruct-q6_k through your existing ai_engine.py.
+Runs the agent in the background.
+Reads HR[120] system status from the Modbus simulator.
+Adds /api/agent/status, /api/agent/operator-message, /api/agent/operator-presence, and /api/agent/system-status.
+Keeps API-key protection for state-changing endpoints.
+Uses a thread-safe TTL cache.
+Avoids blocking the FastAPI event loop during SQLite and Modbus reads.
+
+
+
+       [SCADA Telemetry / Modbus]
+                   │
+                   ▼
+       [FastAPI Backend (api.py)]
+        │                     │
+        ▼                     ▼
+[SQLite: scada.db]   [Obsidian Vault (scada_vault/)]
+                      ├── Machines/
+                      │    └── STP-01.md  ([[Feeder-A]], [[Motor-1]])
+                      ├── Incidents/
+                      │    └── 2026-09-22-Overcurrent-Trip.md
+                      └── Standards/
+                           └── ANSI-51.md

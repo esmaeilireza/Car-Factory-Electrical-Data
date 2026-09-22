@@ -1,31 +1,39 @@
 """
-HMI Simulator - Delta DOP-B style for 6 equipment
+Optimized HMI Simulator - Delta DOP-B style for 6 equipment.
 
-FIXED VERSION:
-- Reads HR[120] system status word for global E-STOP detection
-- Checks bit 15 of alarm_word for protection lockout (is_latched)
-- Motor status display logic now matches Streamlit exactly:
-      E-STOP > LOCKED > TRIPPED > START PENDING > RUNNING > STOPPED
-- Masks bit 15 from alarm_word before displaying ANSI alarms
-- Buttons enabled/disabled based on current system state
-- Global E-STOP indicator banner added
-- NEW: Diagnostic Panel (Debug Mode) added to show raw state variables
-- NEW: START PENDING timeout (5 seconds) for optimistic Streamlit-like behavior
-- [FIX A] Timeout increased to 5s to prevent CPU starvation timeouts
-- [FIX B] Auto-reconnect logic added to main loop for self-healing
+This version:
+- Corrects Modbus register mapping to match data_generator.py.
+- Removes the old bit-15 lockout hack.
+- Uses dedicated lockout register HR[offset+14].
+- Uses correct motor_state interpretation.
+- Adds NEXUS AI Advisor panel.
+- Adds operator presence control.
+- Uses background threads for HTTP requests to avoid UI freezing.
+- Shows heartbeat and trip count in diagnostics.
 """
 
-import tkinter as tk
-from tkinter import ttk
-from pymodbus.client import ModbusTcpClient
+from __future__ import annotations
+
+import os
+import queue
+import threading
 import time
+import tkinter as tk
+from tkinter import ttk, messagebox
+from typing import Any, Dict, Optional
+
+from pymodbus.client import ModbusTcpClient
+
+try:
+    import requests
+except Exception:
+    requests = None
 
 
-# ==========================================
-# Equipment and ANSI Definitions
-# ==========================================
+# =============================================================================
+# Equipment and ANSI definitions
+# =============================================================================
 
-# New offsets: 18 registers per equipment
 EQUIPMENT_LIST = [
     ("STP-01", "Stamping Press", 0),
     ("WLD-01", "Welding Robots", 18),
@@ -35,10 +43,8 @@ EQUIPMENT_LIST = [
     ("UTI-02", "Chiller", 90),
 ]
 
-# Unified index source
 EQUIPMENT_ORDER = [eq[0] for eq in EQUIPMENT_LIST]
 
-# ANSI function definitions
 ANSI_NAMES = [
     "49 Thermal",
     "50 Inst OC",
@@ -50,87 +56,156 @@ ANSI_NAMES = [
     "37 Loss Load",
 ]
 
-# ==========================================
-# Modbus Address Constants
-# ==========================================
 
-SYS_STATUS_ADDR = 120          # HR[120] = system status word
-SYS_STATUS_ESTOP_BIT = 0       # bit 0 of HR[120] = E-STOP latched
-SYS_STATUS_ANY_TRIP_BIT = 1    # bit 1 of HR[120] = any equipment tripped
+# =============================================================================
+# Modbus register map per equipment
+# =============================================================================
+#
+# Matches data_generator.py:
+# [0]  Voltage        V * 10
+# [1]  Current        A * 10
+# [2]  Active Power   kW * 10
+# [3]  Reactive Power kVAR * 10
+# [4]  Apparent Power kVA * 10
+# [5]  Power Factor   pf * 100
+# [6]  Frequency      Hz * 10
+# [7]  Energy         kWh * 100
+# [8]  Motor State    0=STOP, 1=RUN, 2=PENDING, 3=LOCKOUT
+# [9]  Alarm Flag     1=any alarm
+# [10] Trip Word      ANSI fault bitmask
+# [11] Running Time   minutes
+# [12] Load           percent
+# [13] Alarm Word     ANSI warning bitmask
+# [14] Lockout Status 1=latched, 0=clear
+# [15] Theta          thermal capacity * 1000
+# [16] Trip Count     cumulative
+# [17] Heartbeat      watchdog counter
+#
 
-COIL_ESTOP = 6                 # CO[6] = E-STOP command
-COIL_RESET = 7                 # CO[7] = RESET command
+REG_VOLTAGE = 0
+REG_CURRENT = 1
+REG_ACTIVE_POWER = 2
+REG_REACTIVE_POWER = 3
+REG_APPARENT_POWER = 4
+REG_POWER_FACTOR = 5
+REG_FREQUENCY = 6
+REG_ENERGY = 7
+REG_MOTOR_STATE = 8
+REG_ALARM_FLAG = 9
+REG_TRIP_WORD = 10
+REG_RUNNING_TIME = 11
+REG_LOAD = 12
+REG_ALARM_WORD = 13
+REG_LOCKOUT_STATUS = 14
+REG_THETA_PM = 15
+REG_TRIP_COUNT = 16
+REG_HEARTBEAT = 17
 
-LOCKOUT_BIT_IN_ALARM_WORD = 15 # bit 15 of per-equipment alarm_word
+REGS_PER_EQUIPMENT = 18
+
+
+# =============================================================================
+# System status and coils
+# =============================================================================
+
+SYS_STATUS_ADDR = 120
+SYS_STATUS_ESTOP_BIT = 0
+SYS_STATUS_ANY_TRIP_BIT = 1
+
+COIL_ESTOP = 6
+COIL_RESET = 7
 
 POLL_INTERVAL_MS = 500
-START_PENDING_TIMEOUT_SEC = 5  # Optimistic timeout to match Streamlit
+START_PENDING_TIMEOUT_SEC = 8.0
 
 
-# ==========================================
-# Color Palette (matches Streamlit theme)
-# ==========================================
+# =============================================================================
+# API configuration
+# =============================================================================
+
+API_URL = os.environ.get("NEXUS_API_URL", "http://localhost:8000")
+API_KEY = os.environ.get("NEXUS_API_KEY", "")
+
+
+# =============================================================================
+# Color palette
+# =============================================================================
 
 COLORS = {
-    "bg_dark":      "#1a1a2e",
-    "bg_panel":     "#16213e",
-    "bg_header":    "#0f3460",
-    "text_light":   "#a0a0a0",
-    "text_white":   "white",
-    "cyan":         "#00E5FF",
-    "green":        "#00E676",
-    "red":          "#FF1744",
-    "amber":        "#FFB300",
-    "orange":       "orange",
-    "gray":         "#a0a0a0",
-    "estop_bg":     "#3d0000",
-    "normal_bg":    "#16213e",
+    "bg_dark": "#1a1a2e",
+    "bg_panel": "#16213e",
+    "bg_header": "#0f3460",
+    "text_light": "#a0a0a0",
+    "text_white": "white",
+    "cyan": "#00E5FF",
+    "green": "#00E676",
+    "red": "#FF1744",
+    "amber": "#FFB300",
+    "orange": "orange",
+    "gray": "#a0a0a0",
+    "purple": "#bb86fc",
+    "estop_bg": "#3d0000",
+    "normal_bg": "#16213e",
 }
 
 
-# ==========================================
-# Main HMI Application
-# ==========================================
+# =============================================================================
+# Main HMI application
+# =============================================================================
 
 class DeltaHMISimulator:
     """
-    Delta DOP-B style HMI simulator.
-
-    Reads equipment registers + system status word from the
-    Modbus TCP server and renders a synchronized view that
-    matches the Streamlit SCADA dashboard logic.
+    Delta DOP-B style HMI simulator with NEXUS AI advisor panel.
     """
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Delta DOP-B HMI - Car Factory (with Protection)")
-        self.root.geometry("1100x900")
+        self.root.title("Delta DOP-B HMI - Car Factory + NEXUS AI")
+        self.root.state("zoomed")
         self.root.configure(bg=COLORS["bg_dark"])
 
-        # [FIX A] Increased timeout from 3 to 5 seconds to survive CPU starvation
         self.client = ModbusTcpClient(
             host="127.0.0.1",
             port=5020,
             timeout=5,
         )
+
         self.connected = False
         self.running = True
+        self._blink = False
 
-        # Cached system-level flags (updated every poll)
+        # System-level flags
         self.estop_active = False
         self.any_trip_active = False
         self.is_latched = False
 
-        # NEW: START PENDING timeout tracking per equipment
-        self._start_pending_times = {}
+        # Current equipment state cache
+        self.motor_state = 0
+        self.trip_word = 0
+        self.alarm_word = 0
+        self.lockout_status = 0
+        self.heartbeat = 0
+        self.trip_count = 0
+
+        # START PENDING tracking
+        self._start_pending_times: Dict[str, float] = {}
+
+        # AI advisor state
+        self.operator_present = True
+        self.last_ai_status: Optional[Dict[str, Any]] = None
+        self._ai_fetch_in_progress = False
+        self._updating_presence = False
+        self.ai_queue = queue.Queue()
+
 
         self.create_ui()
         self.connect_plc()
         self.update_display()
+        self.start_ai_polling()
 
-    # ==========================================
-    # UI Construction
-    # ==========================================
+    # =========================================================================
+    # UI construction
+    # =========================================================================
 
     def create_ui(self):
         self._create_title_bar()
@@ -141,10 +216,9 @@ class DeltaHMISimulator:
         self._create_protection_panel()
         self._create_controls()
         self._create_alarm_label()
+        self._create_ai_panel()
         self._create_debug_panel()
         self._create_footer()
-
-    # ----- Title Bar -----
 
     def _create_title_bar(self):
         title_frame = tk.Frame(
@@ -159,19 +233,13 @@ class DeltaHMISimulator:
 
         tk.Label(
             title_frame,
-            text="⚡ DELTA DOP-B HMI - Car Factory (WITH ANSI PROTECTION)",
+            text="⚡ DELTA DOP-B HMI - Car Factory + NEXUS AI SUPERVISOR",
             font=("Arial", 16, "bold"),
             bg=COLORS["bg_header"],
             fg=COLORS["cyan"],
         ).pack(pady=20)
 
-    # ----- Global E-STOP Banner -----
-
     def _create_estop_banner(self):
-        """
-        Banner that appears only when global E-STOP is latched.
-        Hidden by default; shown/hidden in _update_estop_banner().
-        """
         self.estop_banner = tk.Label(
             self.root,
             text="🚨 EMERGENCY STOP ACTIVE — ALL EQUIPMENT LOCKED OUT — PRESS RESET TO CLEAR",
@@ -181,9 +249,6 @@ class DeltaHMISimulator:
             anchor=tk.CENTER,
             height=2,
         )
-        # Not packed yet; will be shown when E-STOP is active
-
-    # ----- Connection Status -----
 
     def _create_connection_status(self):
         status_frame = tk.Frame(self.root, bg=COLORS["bg_dark"])
@@ -198,7 +263,6 @@ class DeltaHMISimulator:
         )
         self.conn_label.pack(side=tk.LEFT)
 
-        # System status label (E-STOP / trips) on the right
         self.sys_status_label = tk.Label(
             status_frame,
             text="SYS: --",
@@ -207,8 +271,6 @@ class DeltaHMISimulator:
             fg=COLORS["gray"],
         )
         self.sys_status_label.pack(side=tk.RIGHT)
-
-    # ----- Equipment Selector -----
 
     def _create_equipment_selector(self):
         selector_frame = tk.Frame(self.root, bg=COLORS["bg_dark"])
@@ -222,9 +284,8 @@ class DeltaHMISimulator:
             fg=COLORS["text_white"],
         ).pack(side=tk.LEFT, padx=5)
 
-        self.equipment_names = [
-            f"{eq[0]} - {eq[1]}" for eq in EQUIPMENT_LIST
-        ]
+        self.equipment_names = [f"{eq[0]} - {eq[1]}" for eq in EQUIPMENT_LIST]
+
         self.eq_combo = ttk.Combobox(
             selector_frame,
             values=self.equipment_names,
@@ -234,8 +295,26 @@ class DeltaHMISimulator:
         )
         self.eq_combo.current(0)
         self.eq_combo.pack(side=tk.LEFT, padx=10)
+        self.eq_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda e: self.select_equipment(self.eq_combo.current()),
+        )
 
-    # ----- Main Data Display -----
+        # Real-panel lamp strip: click a lamp to select that machine
+        self.lamp_buttons: Dict[int, tk.Button] = {}
+        lamp_row = tk.Frame(selector_frame, bg=COLORS["bg_dark"])
+        lamp_row.pack(side=tk.LEFT, padx=25)
+
+        for i, (eq_id, _name, _off) in enumerate(EQUIPMENT_LIST):
+            btn = tk.Button(
+                lamp_row, text=eq_id,
+                font=("Arial", 10, "bold"), width=9,
+                relief=tk.RAISED, bd=3,
+                bg=COLORS["bg_header"], fg=COLORS["text_white"],
+                command=lambda idx=i: self.select_equipment(idx),
+            )
+            btn.pack(side=tk.LEFT, padx=3)
+            self.lamp_buttons[i] = btn
 
     def _create_main_display(self):
         display_frame = tk.Frame(
@@ -246,19 +325,19 @@ class DeltaHMISimulator:
         )
         display_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=10)
 
-        self.display_frame = display_frame  # keep reference
+        self.display_frame = display_frame
         self.labels = {}
 
         data_items = [
-            ("voltage",        "Voltage",        "V",    0, 0),
-            ("current",        "Current",        "A",    0, 1),
-            ("active_power",   "Active Power",   "kW",   0, 2),
+            ("voltage", "Voltage", "V", 0, 0),
+            ("current", "Current", "A", 0, 1),
+            ("active_power", "Active Power", "kW", 0, 2),
             ("reactive_power", "Reactive Power", "kVAR", 1, 0),
-            ("apparent_power", "Apparent Power", "kVA",  1, 1),
-            ("power_factor",   "Power Factor",   "",     1, 2),
-            ("frequency",      "Frequency",      "Hz",   2, 0),
-            ("energy",         "Energy",         "kWh",  2, 1),
-            ("running_time",   "Running Time",   "min",  2, 2),
+            ("apparent_power", "Apparent Power", "kVA", 1, 1),
+            ("power_factor", "Power Factor", "", 1, 2),
+            ("frequency", "Frequency", "Hz", 2, 0),
+            ("energy", "Energy", "kWh", 2, 1),
+            ("running_time", "Running Time", "min", 2, 2),
         ]
 
         for key, title, unit, row, col in data_items:
@@ -268,10 +347,8 @@ class DeltaHMISimulator:
                 bd=2,
                 relief=tk.SUNKEN,
             )
-            frame.grid(
-                row=row, column=col,
-                sticky="nsew", padx=8, pady=8,
-            )
+            frame.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
+
             display_frame.columnconfigure(col, weight=1)
             display_frame.rowconfigure(row, weight=1)
 
@@ -305,8 +382,6 @@ class DeltaHMISimulator:
 
         self._create_motor_status_row(display_frame)
 
-    # ----- Motor + Load Status Row -----
-
     def _create_motor_status_row(self, parent):
         status_row = tk.Frame(
             parent,
@@ -315,8 +390,12 @@ class DeltaHMISimulator:
             relief=tk.SUNKEN,
         )
         status_row.grid(
-            row=3, column=0, columnspan=3,
-            sticky="nsew", padx=8, pady=10,
+            row=3,
+            column=0,
+            columnspan=3,
+            sticky="nsew",
+            padx=8,
+            pady=10,
         )
 
         tk.Label(
@@ -354,13 +433,14 @@ class DeltaHMISimulator:
         self.load_label = tk.Label(
             status_row,
             text="0%",
-            font=("Arial", 11, "bold"),
-            bg=COLORS["bg_panel"],
-            fg=COLORS["text_white"],
+            font=("Arial", 12, "bold"),
+            bg="black",
+            fg="#00ff00",
+            bd=2, relief=tk.SUNKEN, padx=12, pady=4,
         )
         self.load_label.pack(side=tk.LEFT, padx=15)
+        self.load_label.bind("<Double-Button-1>", lambda e: self.open_keypad())
 
-    # ----- Protection Panel -----
 
     def _create_protection_panel(self):
         prot_frame = tk.LabelFrame(
@@ -373,14 +453,20 @@ class DeltaHMISimulator:
             relief=tk.GROOVE,
         )
         prot_frame.grid(
-            row=4, column=0, columnspan=3,
-            sticky="nsew", padx=8, pady=10,
+            row=4,
+            column=0,
+            columnspan=3,
+            sticky="nsew",
+            padx=8,
+            pady=10,
         )
 
         self.prot_labels = {}
+
         for i, name in enumerate(ANSI_NAMES):
             row_i = i // 4
             col_i = i % 4
+
             lbl = tk.Label(
                 prot_frame,
                 text=f"{name}: OK",
@@ -393,7 +479,6 @@ class DeltaHMISimulator:
             lbl.grid(row=row_i, column=col_i, padx=8, pady=5)
             self.prot_labels[i] = lbl
 
-        # Thermal capacity bar
         tk.Label(
             prot_frame,
             text="Thermal (49):",
@@ -408,10 +493,7 @@ class DeltaHMISimulator:
             mode="determinate",
             maximum=150,
         )
-        self.theta_bar.grid(
-            row=2, column=1, columnspan=3,
-            padx=8, pady=8,
-        )
+        self.theta_bar.grid(row=2, column=1, columnspan=3, padx=8, pady=8)
 
         self.theta_label = tk.Label(
             prot_frame,
@@ -421,8 +503,6 @@ class DeltaHMISimulator:
             fg=COLORS["cyan"],
         )
         self.theta_label.grid(row=2, column=4, padx=8, pady=8)
-
-    # ----- Control Buttons -----
 
     def _create_controls(self):
         control_frame = tk.Frame(self.root, bg=COLORS["bg_dark"])
@@ -484,7 +564,6 @@ class DeltaHMISimulator:
         )
         self.reset_btn.pack(side=tk.LEFT, padx=12)
 
-        # Load slider
         load_frame = tk.Frame(control_frame, bg=COLORS["bg_dark"])
         load_frame.pack(side=tk.LEFT, padx=25)
 
@@ -497,6 +576,7 @@ class DeltaHMISimulator:
         ).pack()
 
         self.load_var = tk.IntVar(value=0)
+
         self.load_slider = tk.Scale(
             load_frame,
             from_=0,
@@ -511,8 +591,6 @@ class DeltaHMISimulator:
         )
         self.load_slider.pack()
 
-    # ----- Alarm Label -----
-
     def _create_alarm_label(self):
         self.alarm_label = tk.Label(
             self.root,
@@ -523,7 +601,74 @@ class DeltaHMISimulator:
         )
         self.alarm_label.pack(pady=8)
 
-    # ----- Diagnostic Panel (Debug Mode) -----
+    def _create_ai_panel(self):
+        ai_frame = tk.LabelFrame(
+            self.root,
+            text="NEXUS AI Advisor",
+            font=("Arial", 11, "bold"),
+            bg=COLORS["bg_panel"],
+            fg=COLORS["purple"],
+            bd=3,
+            relief=tk.GROOVE,
+        )
+        ai_frame.pack(fill=tk.X, padx=15, pady=8)
+
+        self.ai_state_label = tk.Label(
+            ai_frame,
+            text="AI: waiting for backend...",
+            font=("Arial", 11, "bold"),
+            bg=COLORS["bg_panel"],
+            fg=COLORS["gray"],
+        )
+        self.ai_state_label.pack(anchor=tk.W, padx=10, pady=(8, 2))
+
+        self.ai_msg_label = tk.Label(
+            ai_frame,
+            text="",
+            font=("Arial", 10),
+            bg=COLORS["bg_panel"],
+            fg=COLORS["text_light"],
+            wraplength=1080,
+            justify=tk.LEFT,
+        )
+        self.ai_msg_label.pack(anchor=tk.W, padx=10, pady=2)
+
+        ctrl = tk.Frame(ai_frame, bg=COLORS["bg_panel"])
+        ctrl.pack(anchor=tk.W, padx=10, pady=8)
+
+        self.presence_var = tk.BooleanVar(value=True)
+
+        self.presence_cb = tk.Checkbutton(
+            ctrl,
+            text="Operator Present",
+            variable=self.presence_var,
+            command=self.toggle_operator_presence,
+            bg=COLORS["bg_panel"],
+            fg=COLORS["text_white"],
+            selectcolor=COLORS["bg_dark"],
+            activebackground=COLORS["bg_panel"],
+            activeforeground=COLORS["text_white"],
+            font=("Arial", 10, "bold"),
+        )
+        self.presence_cb.pack(side=tk.LEFT)
+
+        tk.Button(
+            ctrl,
+            text="Refresh AI",
+            font=("Arial", 10, "bold"),
+            bg=COLORS["bg_header"],
+            fg=COLORS["cyan"],
+            width=12,
+            command=self.fetch_ai_status_async,
+        ).pack(side=tk.LEFT, padx=12)
+
+        tk.Label(
+            ctrl,
+            text=f"API: {API_URL}",
+            font=("Arial", 9),
+            bg=COLORS["bg_panel"],
+            fg=COLORS["gray"],
+        ).pack(side=tk.LEFT, padx=8)
 
     def _create_debug_panel(self):
         debug_frame = tk.Frame(
@@ -551,14 +696,12 @@ class DeltaHMISimulator:
         )
         self.debug_label.pack(side=tk.LEFT, padx=10, pady=8)
 
-    # ----- Footer -----
-
     def _create_footer(self):
         tk.Label(
             self.root,
             text=(
                 "Delta DOP-B Simulator | Modbus TCP: 127.0.0.1:5020 "
-                "| WITH ANSI PROTECTION | HR[120] Synced"
+                "| ANSI Protection | HR[120] Synced | NEXUS AI Advisor"
             ),
             font=("Arial", 9),
             bg=COLORS["bg_header"],
@@ -566,9 +709,69 @@ class DeltaHMISimulator:
             anchor=tk.W,
         ).pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 5))
 
-    # ==========================================
-    # Connection
-    # ==========================================
+
+
+    def select_equipment(self, idx: int):
+        """Lamp-strip navigation: select equipment, highlight the active lamp."""
+        self.eq_combo.current(idx)
+        for i, btn in self.lamp_buttons.items():
+            if i == idx:
+                btn.config(relief=tk.SUNKEN, bg=COLORS["cyan"], fg="black")
+            else:
+                btn.config(relief=tk.RAISED, bg=COLORS["bg_header"], fg=COLORS["text_white"])
+
+    def open_keypad(self):
+        """DOP-B style numeric keypad for the Load setpoint."""
+        if self.estop_active:
+            return
+
+        pad = tk.Toplevel(self.root)
+        pad.title("Setpoint Keypad - Load %")
+        pad.geometry("280x400")
+        pad.configure(bg=COLORS["bg_panel"])
+        pad.transient(self.root)
+        pad.grab_set()
+
+        display_var = tk.StringVar(value=str(self.load_var.get()))
+
+        tk.Label(
+            pad, textvariable=display_var,
+            font=("Courier New", 26, "bold"),
+            bg="black", fg="#00ff00",
+            bd=3, relief=tk.SUNKEN, anchor=tk.E,
+        ).pack(fill=tk.X, padx=12, pady=12)
+
+        def press(ch: str):
+            cur = display_var.get()
+            if ch == "CLR":
+                display_var.set("0")
+            elif ch == "ENT":
+                try:
+                    val = max(0, min(100, int(cur)))
+                except ValueError:
+                    val = 0
+                self.load_slider.set(val)
+                self.set_load(str(val))
+                pad.destroy()
+            elif len(cur) < 3:
+                display_var.set((cur + ch).lstrip("0") or "0")
+
+        grid = tk.Frame(pad, bg=COLORS["bg_panel"])
+        grid.pack(padx=12, pady=8)
+
+        keys = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "0", "CLR", "ENT"]
+        for i, k in enumerate(keys):
+            bg = COLORS["bg_header"]
+            if k == "ENT":
+                bg = COLORS["green"]
+            elif k == "CLR":
+                bg = COLORS["red"]
+            tk.Button(
+                grid, text=k, width=6, height=2,
+                font=("Arial", 12, "bold"),
+                bg=bg, fg="white",
+                command=lambda c=k: press(c),
+            ).grid(row=i // 3, column=i % 3, padx=4, pady=4)
 
     def connect_plc(self):
         try:
@@ -577,16 +780,16 @@ class DeltaHMISimulator:
                 self.conn_label.config(text="🟢 LINK UP", fg="green")
                 print("[HMI] Connected to PLC")
             else:
-                self.connected = False  # [FIX] Ensure state is False on failure
+                self.connected = False
                 self.conn_label.config(text="🔴 LINK DOWN", fg="red")
         except Exception as e:
-            self.connected = False  # [FIX] Ensure state is False on exception
+            self.connected = False
             self.conn_label.config(text="🔴 LINK ERROR", fg="red")
             print(f"[HMI] Connection error: {e}")
 
-    # ==========================================
-    # Address Helpers
-    # ==========================================
+    # =========================================================================
+    # Address helpers
+    # =========================================================================
 
     def get_current_register_offset(self) -> int:
         idx = self.eq_combo.current()
@@ -597,53 +800,52 @@ class DeltaHMISimulator:
         eq_id = EQUIPMENT_LIST[idx][0]
         return EQUIPMENT_ORDER.index(eq_id)
 
-    # ==========================================
-    # Modbus Read Helpers
-    # ==========================================
+    def get_current_equipment_id(self) -> str:
+        idx = self.eq_combo.current()
+        return EQUIPMENT_LIST[idx][0]
 
-    def _read_system_status(self) -> tuple:
-        """
-        Read HR[120] system status word.
+    # =========================================================================
+    # Modbus read helpers
+    # =========================================================================
 
-        Returns:
-            (estop_active, any_trip_active)
-        """
+    def _read_system_status(self) -> tuple[bool, bool]:
         try:
             result = self.client.read_holding_registers(
                 address=SYS_STATUS_ADDR,
                 count=1,
                 slave=1,
             )
+
             if not result.isError() and result.registers:
-                word = result.registers[0]
+                word = int(result.registers[0])
                 estop = bool(word & (1 << SYS_STATUS_ESTOP_BIT))
                 any_trip = bool(word & (1 << SYS_STATUS_ANY_TRIP_BIT))
                 return estop, any_trip
+
         except Exception as e:
             print(f"[HMI] SYS status read error: {e}")
 
         return False, False
 
     def _read_coil_command(self) -> bool:
-        """
-        Read back the motor coil for the currently selected equipment.
-        Used for START PENDING display.
-        """
         try:
             coil_res = self.client.read_coils(
                 address=0,
                 count=8,
                 slave=1,
             )
+
             if not coil_res.isError():
                 return bool(coil_res.bits[self.get_current_coil_index()])
+
         except Exception:
             pass
+
         return False
 
-    # ==========================================
-    # Main Poll Loop
-    # ==========================================
+    # =========================================================================
+    # Main PLC polling
+    # =========================================================================
 
     def read_plc_data(self):
         if not self.connected:
@@ -652,159 +854,135 @@ class DeltaHMISimulator:
         try:
             offset = self.get_current_register_offset()
 
-            # --- Read 18 equipment registers ---
             result = self.client.read_holding_registers(
                 address=offset,
-                count=18,
+                count=REGS_PER_EQUIPMENT,
                 slave=1,
             )
+
             if result.isError():
                 return
 
             r = result.registers
 
-            # --- Read global system status (HR[120]) ---
-            self.estop_active, self.any_trip_active = (
-                self._read_system_status()
-            )
+            if len(r) < REGS_PER_EQUIPMENT:
+                return
 
-            # --- Read coil command for START PENDING ---
+            self.estop_active, self.any_trip_active = self._read_system_status()
             coil_cmd = self._read_coil_command()
-            eq_id = EQUIPMENT_LIST[self.eq_combo.current()][0]
-            motor_on = bool(r[8])
+            eq_id = self.get_current_equipment_id()
 
-            # ==========================================
-            # Update numeric displays
-            # ==========================================
-            # When E-STOP is active, force display values to zero
-            # (matches Streamlit behavior)
+            # -------------------------------------------------------------------------
+            # Correct register extraction
+            # -------------------------------------------------------------------------
+            voltage = float(r[REG_VOLTAGE]) / 10.0
+            current = float(r[REG_CURRENT]) / 10.0
+            active_power = float(r[REG_ACTIVE_POWER]) / 10.0
+            reactive_power = float(r[REG_REACTIVE_POWER]) / 10.0
+            apparent_power = float(r[REG_APPARENT_POWER]) / 10.0
+            power_factor = float(r[REG_POWER_FACTOR]) / 100.0
+            frequency = float(r[REG_FREQUENCY]) / 10.0
+            energy = float(r[REG_ENERGY]) / 100.0
+
+            self.motor_state = int(r[REG_MOTOR_STATE])
+            alarm_flag = int(r[REG_ALARM_FLAG])
+            self.trip_word = int(r[REG_TRIP_WORD])
+            running_time = int(r[REG_RUNNING_TIME])
+            load = int(r[REG_LOAD])
+            self.alarm_word = int(r[REG_ALARM_WORD])
+            self.lockout_status = int(r[REG_LOCKOUT_STATUS])
+            theta_pm = int(r[REG_THETA_PM])
+            self.trip_count = int(r[REG_TRIP_COUNT])
+            self.heartbeat = int(r[REG_HEARTBEAT])
+
+            motor_on = self.motor_state == 1
+            motor_pending = self.motor_state == 2
+            self.is_latched = bool(self.lockout_status) or self.motor_state == 3
+
+            # -------------------------------------------------------------------------
+            # Numeric display
+            # -------------------------------------------------------------------------
             if self.estop_active:
-                self.labels["voltage"].config(text=f"{r[0]/10:.1f}")
-                self.labels["current"].config(text="0.0")
-                self.labels["active_power"].config(text="0.00")
-                self.labels["reactive_power"].config(text="0.00")
-                self.labels["apparent_power"].config(text="0.00")
-                self.labels["power_factor"].config(text="0.000")
-                self.labels["frequency"].config(text=f"{r[6]/10:.2f}")
-                self.labels["energy"].config(text=f"{r[7]/100:.2f}")
-                self.labels["running_time"].config(text=f"{r[11]}")
+                display_current = 0.0
+                display_active = 0.0
+                display_reactive = 0.0
+                display_apparent = 0.0
+                display_pf = 0.0
+                display_load = 0
             else:
-                self.labels["voltage"].config(text=f"{r[0]/10:.1f}")
-                self.labels["current"].config(text=f"{r[1]/10:.1f}")
-                self.labels["active_power"].config(text=f"{r[2]/10:.2f}")
-                self.labels["reactive_power"].config(text=f"{r[3]/10:.2f}")
-                self.labels["apparent_power"].config(text=f"{r[4]/10:.2f}")
-                self.labels["power_factor"].config(text=f"{r[5]/100:.3f}")
-                self.labels["frequency"].config(text=f"{r[6]/10:.2f}")
-                self.labels["energy"].config(text=f"{r[7]/100:.2f}")
-                self.labels["running_time"].config(text=f"{r[11]}")
+                display_current = current
+                display_active = active_power
+                display_reactive = reactive_power
+                display_apparent = apparent_power
+                display_pf = power_factor
+                display_load = load
 
-            # ==========================================
-            # Extract protection words
-            # ==========================================
-            trip_word = r[13]
-            raw_alarm_word = r[14]
-            theta_pm = r[15]
+            self.labels["voltage"].config(text=f"{voltage:.1f}")
+            self.labels["current"].config(text=f"{display_current:.1f}")
+            self.labels["active_power"].config(text=f"{display_active:.2f}")
+            self.labels["reactive_power"].config(text=f"{display_reactive:.2f}")
+            self.labels["apparent_power"].config(text=f"{display_apparent:.2f}")
+            self.labels["power_factor"].config(text=f"{display_pf:.3f}")
+            self.labels["frequency"].config(text=f"{frequency:.2f}")
+            self.labels["energy"].config(text=f"{energy:.2f}")
+            self.labels["running_time"].config(text=f"{running_time}")
 
-            # Bit 15 of alarm_word = lockout flag (set by data_generator)
-            self.is_latched = bool(
-                raw_alarm_word & (1 << LOCKOUT_BIT_IN_ALARM_WORD)
-            )
-
-            # Mask out bit 15 so ANSI alarm panel is not confused
-            alarm_word = raw_alarm_word & ~(1 << LOCKOUT_BIT_IN_ALARM_WORD)
-
-            # ==========================================
-            # Motor status label (matches Streamlit logic)
-            #
+            # -------------------------------------------------------------------------
+            # Motor status logic
             # Priority:
-            #   1. E-STOP    (global latch from HR[120])
-            #   2. LOCKED    (per-equipment protection latch)
-            #   3. TRIPPED   (active trip_word, motor stopped)
-            #   4. START PENDING (coil ON but motor not yet running)
-            #      → With optimistic timeout (5s) to match Streamlit
-            #   5. RUNNING
-            #   6. STOPPED
-            # ==========================================
+            #   E-STOP > LOCKED > TRIPPED > START PENDING/TIMEOUT > RUNNING > STOPPED
+            # -------------------------------------------------------------------------
             if self.estop_active:
-                self.motor_label.config(
-                    text="🚨 E-STOP",
-                    fg=COLORS["red"],
-                )
                 self._start_pending_times.pop(eq_id, None)
+                self.motor_label.config(text="🚨 E-STOP", fg=COLORS["red"])
 
             elif self.is_latched:
-                self.motor_label.config(
-                    text="🔒 LOCKED",
-                    fg=COLORS["amber"],
-                )
                 self._start_pending_times.pop(eq_id, None)
+                self.motor_label.config(text="🔒 LOCKED", fg=COLORS["amber"])
 
-            elif trip_word and not motor_on:
-                self.motor_label.config(
-                    text="⚡ TRIPPED",
-                    fg=COLORS["amber"],
-                )
+            elif self.trip_word and not motor_on:
                 self._start_pending_times.pop(eq_id, None)
+                self.motor_label.config(text="⚡ TRIPPED", fg=COLORS["amber"])
 
-            elif not motor_on and coil_cmd:
-                # ==========================================
-                # START PENDING with optimistic timeout
-                # ==========================================
+            elif motor_pending or (coil_cmd and not motor_on and not self.is_latched):
                 current_time = time.time()
 
                 if eq_id not in self._start_pending_times:
                     self._start_pending_times[eq_id] = current_time
-                    print(f"[HMI] ⏳ START PENDING started for {eq_id}")
 
                 elapsed = current_time - self._start_pending_times[eq_id]
 
                 if elapsed < START_PENDING_TIMEOUT_SEC:
-                    # Still waiting for motor to start
                     self.motor_label.config(
                         text="⏳ START PENDING",
                         fg=COLORS["orange"],
                     )
                 else:
-                    # Timeout: assume motor started successfully
-                    # (matches Streamlit optimistic behavior)
                     self.motor_label.config(
-                        text="✅ RUNNING",
-                        fg=COLORS["green"],
+                        text="⚠️ START TIMEOUT",
+                        fg=COLORS["red"],
                     )
 
             elif motor_on:
-                # Motor actually running - clear pending timer
                 self._start_pending_times.pop(eq_id, None)
-                self.motor_label.config(
-                    text="✅ RUNNING",
-                    fg=COLORS["green"],
-                )
+                self.motor_label.config(text="✅ RUNNING", fg=COLORS["green"])
 
             else:
-                # Stopped
                 self._start_pending_times.pop(eq_id, None)
-                self.motor_label.config(
-                    text="⏹️ STOPPED",
-                    fg="red",
-                )
+                self.motor_label.config(text="⏹️ STOPPED", fg="red")
 
-            # ==========================================
+            # -------------------------------------------------------------------------
             # Load bar
-            # ==========================================
-            if self.estop_active:
-                self.load_bar["value"] = 0
-                self.load_label.config(text="0%")
-            else:
-                self.load_bar["value"] = r[12]
-                self.load_label.config(text=f"{r[12]}%")
+            # -------------------------------------------------------------------------
+            self.load_bar["value"] = display_load
+            self.load_label.config(text=f"{display_load}%")
 
-            # ==========================================
+            # -------------------------------------------------------------------------
             # ANSI protection indicators
-            # ==========================================
+            # -------------------------------------------------------------------------
             for i in range(8):
-                tripped = bool(trip_word & (1 << i))
-                alarmed = bool(alarm_word & (1 << i))
+                tripped = bool(self.trip_word & (1 << i))
+                alarmed = bool(self.alarm_word & (1 << i))
 
                 if tripped:
                     self.prot_labels[i].config(
@@ -822,9 +1000,9 @@ class DeltaHMISimulator:
                         fg=COLORS["gray"],
                     )
 
-            # ==========================================
-            # Thermal capacity (ANSI 49)
-            # ==========================================
+            # -------------------------------------------------------------------------
+            # Thermal capacity
+            # -------------------------------------------------------------------------
             theta_pct = theta_pm / 10.0
             self.theta_bar["value"] = theta_pct
 
@@ -840,99 +1018,107 @@ class DeltaHMISimulator:
                 fg=theta_color,
             )
 
-            # ==========================================
-            # Alarm text banner
-            # ==========================================
+            # -------------------------------------------------------------------------
+            # Alarm banner
+            # -------------------------------------------------------------------------
             if self.estop_active:
                 self.alarm_label.config(
                     text="🚨 E-STOP LATCHED — ALL EQUIPMENT STOPPED",
                     fg=COLORS["red"],
                 )
+
             elif self.is_latched:
                 active_trips = [
                     ANSI_NAMES[i]
                     for i in range(8)
-                    if trip_word & (1 << i)
+                    if self.trip_word & (1 << i)
                 ]
                 trip_text = ", ".join(active_trips) if active_trips else "PROTECTION"
                 self.alarm_label.config(
                     text=f"🔒 LOCKOUT: {trip_text} — PRESS RESET",
                     fg=COLORS["amber"],
                 )
-            elif trip_word:
+
+            elif self.trip_word:
                 active_trips = [
                     ANSI_NAMES[i]
                     for i in range(8)
-                    if trip_word & (1 << i)
+                    if self.trip_word & (1 << i)
                 ]
                 self.alarm_label.config(
                     text=f"⚡ TRIPS: {', '.join(active_trips)}",
                     fg=COLORS["red"],
                 )
-            elif alarm_word:
+
+            elif self.alarm_word:
                 active_alarms = [
                     ANSI_NAMES[i]
                     for i in range(8)
-                    if alarm_word & (1 << i)
+                    if self.alarm_word & (1 << i)
                 ]
                 self.alarm_label.config(
                     text=f"⚠️ ALARMS: {', '.join(active_alarms)}",
                     fg=COLORS["amber"],
                 )
+
             else:
                 self.alarm_label.config(text="")
 
-            # ==========================================
-            # System status label (top right)
-            # ==========================================
+            # -------------------------------------------------------------------------
+            # System status label
+            # -------------------------------------------------------------------------
             self._update_system_status_label()
-
-            # ==========================================
-            # E-STOP banner visibility
-            # ==========================================
             self._update_estop_banner()
-
-            # ==========================================
-            # Button states
-            # ==========================================
             self._update_button_states()
 
-            # ==========================================
-            # Diagnostic Panel update
-            # ==========================================
+            # -------------------------------------------------------------------------
+            # Diagnostic panel
+            # -------------------------------------------------------------------------
             pending_info = ""
             if eq_id in self._start_pending_times:
                 elapsed = time.time() - self._start_pending_times[eq_id]
                 pending_info = f" | pending: {elapsed:.1f}s"
 
+            ai_state = "offline"
+            if self.last_ai_status:
+                ai_state = self.last_ai_status.get("system_state", "unknown")
+
             debug_text = (
-                f"coil_cmd={coil_cmd} | motor_on={motor_on} | "
-                f"trip_word={trip_word} | is_latched={self.is_latched} | "
-                f"estop_active={self.estop_active}{pending_info}"
+                f"motor_state={self.motor_state} | "
+                f"coil_cmd={coil_cmd} | "
+                f"trip_word={self.trip_word} | "
+                f"alarm_word={self.alarm_word} | "
+                f"lockout={self.lockout_status} | "
+                f"is_latched={self.is_latched} | "
+                f"estop={self.estop_active} | "
+                f"hb={self.heartbeat} | "
+                f"trips={self.trip_count} | "
+                f"ai={ai_state}"
+                f"{pending_info}"
             )
+
             self.debug_label.config(text=debug_text)
 
         except Exception as e:
-            # [AUTO-HEAL] If the socket dies mid-read, catch it, mark as disconnected,
-            # and let the main loop automatically trigger a reconnect on the next tick.
             print(f"[HMI] Read error: {e}. Triggering auto-reconnect...")
             self.connected = False
             self.conn_label.config(text="🔴 LINK LOST", fg="red")
+
             try:
                 self.client.close()
             except Exception:
                 pass
 
-    # ==========================================
-    # UI Update Helpers
-    # ==========================================
+    # =========================================================================
+    # UI update helpers
+    # =========================================================================
 
     def _update_system_status_label(self):
-        """Update the small SYS label in the top-right corner."""
         parts = []
 
         if self.estop_active:
             parts.append("E-STOP")
+
         if self.any_trip_active:
             parts.append("TRIP")
 
@@ -946,62 +1132,79 @@ class DeltaHMISimulator:
         self.sys_status_label.config(text=text, fg=color)
 
     def _update_estop_banner(self):
-        """Show or hide the global E-STOP banner."""
         if self.estop_active:
             if not self.estop_banner.winfo_manager():
-                # Pack it right after the title bar
                 self.estop_banner.pack(
                     fill=tk.X,
                     padx=15,
                     pady=(5, 0),
                     before=self.conn_label.master,
                 )
+            self.estop_banner.config(
+                bg=COLORS["red"] if self._blink else "#7a0000",
+            )
         else:
             if self.estop_banner.winfo_manager():
                 self.estop_banner.pack_forget()
 
-    def _update_button_states(self):
-        """
-        Enable/disable buttons based on system state.
 
-        - During E-STOP: START disabled, STOP disabled,
-          E-STOP disabled, RESET enabled.
-        - During LOCKED: START disabled, others enabled.
-        - Normal: all enabled.
-        """
-        if self.estop_active:
+
+    def _update_button_states(self):
+        if not self.connected:
             self.start_btn.config(state=tk.DISABLED)
             self.stop_btn.config(state=tk.DISABLED)
             self.estop_btn.config(state=tk.DISABLED)
-            self.reset_btn.config(state=tk.NORMAL)
+            self.reset_btn.config(state=tk.DISABLED)
             self.load_slider.config(state=tk.DISABLED)
-        elif self.is_latched:
-            self.start_btn.config(state=tk.DISABLED)
-            self.stop_btn.config(state=tk.NORMAL)
-            self.estop_btn.config(state=tk.NORMAL)
-            self.reset_btn.config(state=tk.NORMAL)
-            self.load_slider.config(state=tk.NORMAL)
-        else:
-            self.start_btn.config(state=tk.NORMAL)
-            self.stop_btn.config(state=tk.NORMAL)
-            self.estop_btn.config(state=tk.NORMAL)
-            self.reset_btn.config(state=tk.NORMAL)
-            self.load_slider.config(state=tk.NORMAL)
+            return
 
-    # ==========================================
-    # Motor / System Commands
-    # ==========================================
+        can_start = (
+            not self.estop_active
+            and not self.is_latched
+            and self.motor_state not in (1, 2)
+        )
+
+        can_stop = (
+            not self.estop_active
+            and self.motor_state in (1, 2)
+        )
+
+        can_estop = not self.estop_active
+
+        can_reset = (
+            self.estop_active
+            or self.is_latched
+            or self.trip_word != 0
+        )
+
+        can_load = not self.estop_active
+
+        self.start_btn.config(state=tk.NORMAL if can_start else tk.DISABLED)
+        self.stop_btn.config(state=tk.NORMAL if can_stop else tk.DISABLED)
+        self.estop_btn.config(state=tk.NORMAL if can_estop else tk.DISABLED)
+        self.reset_btn.config(state=tk.NORMAL if can_reset else tk.DISABLED)
+        self.load_slider.config(state=tk.NORMAL if can_load else tk.DISABLED)
+
+    # =========================================================================
+    # Motor / system commands
+    # =========================================================================
 
     def start_motor(self):
         if not self.connected:
             return
 
-        # Block locally if E-STOP or lockout is active
+        eq_id = self.get_current_equipment_id()
+
         if self.estop_active:
             print("[HMI] ⛔ START blocked — E-STOP is active")
             return
+
         if self.is_latched:
             print("[HMI] ⛔ START blocked — protection lockout active")
+            return
+
+        if self.motor_state in (1, 2):
+            print(f"[HMI] ⛔ START ignored — {eq_id} already running or pending")
             return
 
         try:
@@ -1011,12 +1214,10 @@ class DeltaHMISimulator:
                 value=True,
                 slave=1,
             )
-            eq_id = EQUIPMENT_LIST[self.eq_combo.current()][0]
 
-            # NEW: Start tracking pending time immediately
             self._start_pending_times[eq_id] = time.time()
+            print(f"[HMI] ▶️ START sent for {eq_id}")
 
-            print(f"[HMI] ▶️  START sent for {eq_id} (timeout tracking started)")
         except Exception as e:
             print(f"[HMI] Start error: {e}")
 
@@ -1031,12 +1232,12 @@ class DeltaHMISimulator:
                 value=False,
                 slave=1,
             )
-            eq_id = EQUIPMENT_LIST[self.eq_combo.current()][0]
 
-            # Clear pending timer on STOP
+            eq_id = self.get_current_equipment_id()
             self._start_pending_times.pop(eq_id, None)
 
-            print(f"[HMI] ⏹️  STOP sent for {eq_id}")
+            print(f"[HMI] ⏹️ STOP sent for {eq_id}")
+
         except Exception as e:
             print(f"[HMI] Stop error: {e}")
 
@@ -1050,14 +1251,22 @@ class DeltaHMISimulator:
                 value=True,
                 slave=1,
             )
-            # Clear all pending timers on E-STOP
+
             self._start_pending_times.clear()
             print("[HMI] 🚨 E-STOP sent")
+
         except Exception as e:
             print(f"[HMI] E-STOP error: {e}")
 
     def reset_protection(self):
         if not self.connected:
+            return
+
+        if not messagebox.askyesno(
+            "Confirm RESET",
+            "Clear protection lockouts and the E-STOP latch?\n"
+            "All equipment will be allowed to restart.",
+        ):
             return
 
         try:
@@ -1066,7 +1275,9 @@ class DeltaHMISimulator:
                 value=True,
                 slave=1,
             )
+
             print("[HMI] 🔓 RESET sent")
+
         except Exception as e:
             print(f"[HMI] RESET error: {e}")
 
@@ -1074,49 +1285,233 @@ class DeltaHMISimulator:
         if not self.connected:
             return
 
-        # Block load changes during E-STOP
         if self.estop_active:
             return
 
         try:
             offset = self.get_current_register_offset()
             self.client.write_register(
-                address=offset + 12,
+                address=offset + REG_LOAD,
                 value=int(float(value)),
                 slave=1,
             )
+
         except Exception as e:
             print(f"[HMI] Load error: {e}")
 
-    # ==========================================
-    # Polling and Lifecycle
-    # ==========================================
+    # =========================================================================
+    # AI advisor polling
+    # =========================================================================
+
+    def start_ai_polling(self):
+        self.root.after(1000, self.fetch_ai_status_async)
+        self.root.after(200, self.process_ai_queue)
+
+    def fetch_ai_status_async(self):
+        if self._ai_fetch_in_progress:
+            return
+
+        self._ai_fetch_in_progress = True
+        threading.Thread(target=self._fetch_ai_worker, daemon=True).start()
+
+    def _fetch_ai_worker(self):
+        try:
+            if requests is None:
+                self.ai_queue.put(("err", "requests library not available"))
+                return
+
+            resp = requests.get(
+                f"{API_URL}/api/agent/status",
+                timeout=1.5,
+            )
+
+            if resp.ok:
+                self.ai_queue.put(("ok", resp.json()))
+            else:
+                self.ai_queue.put(("err", f"HTTP {resp.status_code}: {resp.text[:120]}"))
+
+        except Exception as e:
+            self.ai_queue.put(("err", str(e)))
+
+        finally:
+            self._ai_fetch_in_progress = False
+
+    def process_ai_queue(self):
+        try:
+            while True:
+                kind, payload = self.ai_queue.get_nowait()
+
+                if kind == "ok":
+                    self._update_ai_panel(payload)
+
+                elif kind == "err":
+                    self.ai_state_label.config(
+                        text="AI: backend unavailable",
+                        fg=COLORS["gray"],
+                    )
+                    self.ai_msg_label.config(
+                        text=f"Error: {payload}",
+                        fg=COLORS["red"],
+                    )
+
+                elif kind == "presence":
+                    self._handle_presence_result(payload)
+
+        except queue.Empty:
+            pass
+
+        self.root.after(200, self.process_ai_queue)
+        self.root.after(2000, self.fetch_ai_status_async)
+
+    def _update_ai_panel(self, status: Dict[str, Any]):
+        self.last_ai_status = status
+
+        state = str(status.get("system_state", "UNKNOWN"))
+        mode = str(status.get("operating_mode", "ADVISORY"))
+        llm_available = bool(status.get("llm_available", False))
+        operator_present = bool(status.get("operator_present", self.operator_present))
+
+        color_map = {
+            "NORMAL": COLORS["green"],
+            "DEGRADED": COLORS["gray"],
+            "WARNING": COLORS["amber"],
+            "CRITICAL": COLORS["red"],
+            "LOCKED_OUT": COLORS["amber"],
+            "ESTOP": COLORS["red"],
+        }
+
+        color = color_map.get(state, COLORS["cyan"])
+
+        self.ai_state_label.config(
+            text=(
+                f"AI State: {state} | Mode: {mode} | "
+                f"LLM: {'online' if llm_available else 'offline'} | "
+                f"Operator: {'present' if operator_present else 'absent'}"
+            ),
+            fg=color,
+        )
+
+        recommendations = status.get("recommendations", [])
+
+        if recommendations:
+            top = recommendations[0]
+            msg = top.get("message", "")
+            action = top.get("action", "manual_review")
+            severity = str(top.get("severity", "LOW")).upper()
+
+            sev_color = {
+                "CRITICAL": COLORS["red"],
+                "HIGH": COLORS["red"],
+                "MEDIUM": COLORS["amber"],
+                "LOW": COLORS["cyan"],
+                "INFO": COLORS["gray"],
+            }.get(severity, COLORS["text_light"])
+
+            self.ai_msg_label.config(
+                text=f"Top recommendation: {msg} | Action: {action}",
+                fg=sev_color,
+            )
+        else:
+            self.ai_msg_label.config(
+                text="No active recommendation. System nominal.",
+                fg=COLORS["green"],
+            )
+
+        # Sync checkbox without triggering command recursion.
+        self._updating_presence = True
+        self.presence_var.set(operator_present)
+        self.operator_present = operator_present
+        self._updating_presence = False
+
+    def toggle_operator_presence(self):
+        if self._updating_presence:
+            return
+
+        present = bool(self.presence_var.get())
+        self.operator_present = present
+
+        threading.Thread(
+            target=self._post_operator_presence_worker,
+            args=(present,),
+            daemon=True,
+        ).start()
+
+    def _post_operator_presence_worker(self, present: bool):
+        try:
+            if requests is None:
+                self.ai_queue.put(("err", "requests library not available"))
+                return
+
+            resp = requests.post(
+                f"{API_URL}/api/agent/operator-presence",
+                params={"present": "true" if present else "false"},
+                headers=({"X-API-Key": API_KEY} if API_KEY else {}),
+                timeout=2.0,
+            )
+
+            self.ai_queue.put(
+                (
+                    "presence",
+                    {
+                        "present": present,
+                        "status_code": resp.status_code,
+                        "body": resp.text[:200],
+                    },
+                )
+            )
+
+        except Exception as e:
+            self.ai_queue.put(("err", f"Presence update failed: {e}"))
+
+    def _handle_presence_result(self, payload: Dict[str, Any]):
+        present = bool(payload.get("present", False))
+        status_code = int(payload.get("status_code", 0))
+
+        if 200 <= status_code < 300:
+            self.ai_msg_label.config(
+                text=(
+                    f"Operator presence updated: {'present' if present else 'absent'}. "
+                    f"Agent mode will follow backend policy."
+                ),
+                fg=COLORS["purple"],
+            )
+        else:
+            self.ai_msg_label.config(
+                text=f"Operator presence update failed: HTTP {status_code}",
+                fg=COLORS["red"],
+            )
+
+    # =========================================================================
+    # Lifecycle
+    # =========================================================================
 
     def update_display(self):
         if self.running:
-            # [FIX B] AUTO-HEAL: If disconnected, continuously try to reconnect in the background
+            self._blink = not self._blink
+
             if not self.connected:
                 self.connect_plc()
-            
-            # Only read data if we are successfully connected
+
             if self.connected:
                 self.read_plc_data()
-                
+
             self.root.after(POLL_INTERVAL_MS, self.update_display)
 
     def on_closing(self):
         self.running = False
+
         if self.client:
             try:
                 self.client.close()
             except Exception:
                 pass
+
         self.root.destroy()
 
 
-# ==========================================
-# Entry Point
-# ==========================================
+# =============================================================================
+# Entry point
+# =============================================================================
 
 def main():
     root = tk.Tk()
