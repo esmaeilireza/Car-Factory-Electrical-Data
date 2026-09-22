@@ -38,3 +38,4 @@ Thumbs.db
 
 # Runtime audit logs
 *.jsonl
+data/scada_vault/Incidents/
