@@ -15,7 +15,7 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
-llama_cpp_python @ file:///D:/Machine%20learning/data%20analyze%20Projects/phase%203%20car-factory-electrical-data/llama_cpp_python-0.3.35-py3-none-win_amd64.whl#sha256=31590ea000d5aff6f05f1e428048e72318a83709288159a5bd4dabec530080bb
+llama-cpp-python==0.3.35
 MarkupSafe==3.0.3
 narwhals==2.26.0
 numpy==2.4.6
@@ -45,3 +45,25 @@ urllib3==2.8.0
 uvicorn==0.53.0
 watchdog==6.0.0
 websockets==16.1.1
+
+# =============================================================================
+# ??  MANUAL STEP REQUIRED FOR llama-cpp-python
+# =============================================================================
+# The line above pins the version for documentation/freeze purposes only.
+# pip CANNOT install llama-cpp-python from PyPI on Windows without a C++ compiler.
+#
+# BEFORE running `pip install -r requirements.txt`, you must install the wheel manually:
+#
+#   1. Download the matching wheel from:
+#      https://github.com/abetlen/llama-cpp-python/releases/tag/v0.3.35
+#      (Choose: llama_cpp_python-0.3.35-cpXXX-cpXXX-win_amd64.whl matching your Python version)
+#
+#   2. Install it locally:
+#      pip install ./llama_cpp_python-0.3.35-cpXXX-cpXXX-win_amd64.whl
+#
+#   3. THEN install the rest of this file:
+#      pip install -r requirements.txt
+#
+# Alternative (if you have Visual Studio Build Tools installed):
+#   pip install llama-cpp-python==0.3.35 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+# =============================================================================
