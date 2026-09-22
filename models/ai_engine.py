@@ -27,6 +27,12 @@ LLAMA_CPP_AVAILABLE = False
 Llama = None
 AutoModelForCausalLM = None
 
+try:
+    from obsidian_bridge import log_incident
+    OBSIDIAN_AVAILABLE = True
+except Exception:
+    OBSIDIAN_AVAILABLE = False
+
 
 def _debug_env() -> None:
     """Print which interpreter and paths are in play (debug aid)."""
@@ -478,6 +484,25 @@ Respond ONLY with valid JSON matching the schema defined in SYSTEM_PROMPT.
         }
         with open(self.audit_log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry) + "\n")
+
+        # --- Obsidian incident logging (Feature B) ---
+        # Only high-severity events become vault documents, so the
+        # incident graph stays meaningful instead of filling with noise.
+        try:
+            if OBSIDIAN_AVAILABLE:
+                severity = str(diagnosis.get("severity", "low")).lower()
+                safety_level = int(diagnosis.get("safety_level", 1) or 1)
+                if severity in ("high", "critical") or safety_level >= 3:
+                    log_incident(
+                        equipment_ids=diagnosis.get("affected_equipment", []),
+                        fault_type=str(diagnosis.get("iec_reference", "") or "Unclassified"),
+                        diagnosis=str(diagnosis.get("diagnosis", "")),
+                        recommended_action=str(diagnosis.get("recommended_action", "")),
+                        severity=severity.upper(),
+                        source=diagnosis.get("source", "ai_engine"),
+                    )
+        except Exception:
+            pass  # fire-and-forget - audit logging must never be blocked
 
     def execute_safe_action(self, action: str, safety_level: int) -> Tuple[bool, str]:
         """Validate and approve a recommended action if it's safe for auto-execution."""

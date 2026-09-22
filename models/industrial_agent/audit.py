@@ -10,6 +10,12 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+try:
+    from obsidian_bridge import log_incident
+    OBSIDIAN_AVAILABLE = True
+except Exception:
+    OBSIDIAN_AVAILABLE = False
+
 
 class AuditLogger:
     def __init__(self, path: Optional[str] = None):
@@ -39,3 +45,36 @@ class AuditLogger:
                 f.write(json.dumps(record, default=str) + "\n")
         except Exception as e:
             print(f"[AUDIT] Write failed: {e}")
+
+        # --- Obsidian incident logging (Feature B) ---
+        # Only high-severity events become vault documents, so the
+        # incident graph stays meaningful instead of filling with noise.
+        # Fire-and-forget: audit JSONL write always completes first.
+        try:
+            if OBSIDIAN_AVAILABLE:
+                severity = str(payload.get("severity", "low")).lower()
+                safety_level = int(payload.get("safety_level", 1) or 1)
+                if severity in ("high", "critical") or safety_level >= 3:
+                    log_incident(
+                        equipment_ids=payload.get("affected_equipment", [])
+                            or payload.get("equipment", []),
+                        fault_type=str(
+                            payload.get("iec_reference", "")
+                            or payload.get("code", "")
+                            or "Unclassified"
+                        ),
+                        diagnosis=str(
+                            payload.get("diagnosis", "")
+                            or payload.get("message", "")
+                            or event
+                        ),
+                        recommended_action=str(
+                            payload.get("recommended_action", "")
+                            or payload.get("action", "")
+                            or "manual_review"
+                        ),
+                        severity=severity.upper(),
+                        source=payload.get("source", "agent_audit"),
+                    )
+        except Exception:
+            pass  # fire-and-forget - audit logging must never be blocked
