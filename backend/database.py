@@ -6,6 +6,8 @@ FIXES APPLIED:
 - try/finally on every connection to prevent leaks
 - WAL mode + busy_timeout on every connection to prevent locking
 - acknowledge_alarm returns False when no row was actually updated
+- Constructor accepts optional db_path for unit testing
+- get_equipment_statistics provides LLM-ready statistical context
 """
 import sqlite3
 import os
@@ -16,13 +18,16 @@ from typing import Dict, List, Optional
 class ScadaDatabase:
     """SQLite database manager for storing factory data."""
 
-    def __init__(self):
-        # Database path: 'data' folder in the project root
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(current_dir)
-        data_dir = os.path.join(project_root, "data")
-        os.makedirs(data_dir, exist_ok=True)
-        self.db_path = os.path.join(data_dir, "scada.db")
+    def __init__(self, db_path: Optional[str] = None):
+        """Allow db_path override for unit tests; default is the project data dir."""
+        if db_path is not None:
+            self.db_path = db_path
+        else:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)
+            data_dir = os.path.join(project_root, "data")
+            os.makedirs(data_dir, exist_ok=True)
+            self.db_path = os.path.join(data_dir, "scada.db")
 
         self._init_database()
 
@@ -264,6 +269,90 @@ class ScadaDatabase:
             print(f"[DB Error] cleanup: {e}")
         finally:
             conn.close()  # FIX: Guaranteed close via try/finally
+
+    def get_equipment_statistics(self, equipment_id: str, hours: int = 24) -> Dict:
+        """
+        Compute statistical context for one equipment over a time window.
+
+        Returns a compact dict suitable for injection into LLM diagnostic
+        prompts. Pure read-only function - no side effects.
+        """
+        conn = self._get_connection()
+        try:
+            now = datetime.now()
+            window_start = (now - timedelta(hours=hours)).isoformat()
+            hour_start = (now - timedelta(hours=1)).isoformat()
+
+            # --- Telemetry aggregates for the window ---
+            rows = conn.execute(
+                """
+                SELECT current, theta_per_mille
+                FROM equipment_data
+                WHERE equipment_id = ? AND timestamp > ?
+                """,
+                (equipment_id, window_start),
+            ).fetchall()
+
+            currents = [float(r[0]) for r in rows]
+            thetas = [float(r[1]) / 10.0 for r in rows]  # stored x10 -> percent
+
+            n = len(currents)
+            if n > 0:
+                current_mean = sum(currents) / n
+                variance = sum((c - current_mean) ** 2 for c in currents) / n
+                current_std = variance ** 0.5
+                theta_mean = sum(thetas) / n
+                theta_max = max(thetas)
+            else:
+                current_mean = current_std = theta_mean = theta_max = 0.0
+
+            # --- Alarms in the last hour (from the alarm_events table) ---
+            alarm_count_1h = conn.execute(
+                """
+                SELECT COUNT(*) FROM alarm_events
+                WHERE equipment_id = ? AND timestamp > ?
+                """,
+                (equipment_id, hour_start),
+            ).fetchone()[0]
+
+            # --- Minutes since the last protection trip ---
+            last_trip_row = conn.execute(
+                """
+                SELECT timestamp FROM equipment_data
+                WHERE equipment_id = ? AND trip_word > 0
+                ORDER BY id DESC LIMIT 1
+                """,
+                (equipment_id,),
+            ).fetchone()
+
+            if last_trip_row:
+                try:
+                    last_trip = datetime.fromisoformat(last_trip_row[0])
+                    minutes_since_last_trip = int((now - last_trip).total_seconds() // 60)
+                except ValueError:
+                    minutes_since_last_trip = -1
+            else:
+                minutes_since_last_trip = -1  # never tripped in recorded history
+
+            return {
+                "current_mean": round(current_mean, 2),
+                "current_std": round(current_std, 2),
+                "theta_mean": round(theta_mean, 1),
+                "theta_max": round(theta_max, 1),
+                "alarm_count_1h": int(alarm_count_1h),
+                "minutes_since_last_trip": minutes_since_last_trip,
+                "sample_count": n,
+            }
+        except Exception as e:
+            print(f"[DB Error] get_equipment_statistics: {e}")
+            return {
+                "current_mean": 0.0, "current_std": 0.0,
+                "theta_mean": 0.0, "theta_max": 0.0,
+                "alarm_count_1h": 0, "minutes_since_last_trip": -1,
+                "sample_count": 0,
+            }
+        finally:
+            conn.close()
 
 
 # A Singleton instance for use across the entire application
