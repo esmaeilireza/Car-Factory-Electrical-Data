@@ -172,6 +172,13 @@ Rules:
             if not parsed:
                 return None
 
+            # Canary guard: small models sometimes echo the prompt's own
+            # example JSON verbatim. Treat that as a parse failure so the
+            # honest fallback (rules engine) stays authoritative.
+            if (parsed.get("operator_message") == "short message for HMI"
+                    or parsed.get("diagnosis") == "short diagnosis"):
+                return None
+
             parsed = self._normalize_result(parsed)
             parsed["source"] = "llm"
             parsed["raw"] = raw
