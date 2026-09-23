@@ -44,3 +44,7 @@ data/scada_vault/Incidents/
 models/*.bin
 models/*.safetensors
 models/*.gguf
+data/*.db-wal
+data/*.db-shm
+data/agent_audit.jsonl
+data/scada_vault/Incidents/
