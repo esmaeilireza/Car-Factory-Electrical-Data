@@ -49,3 +49,7 @@ data/*.db-shm
 data/agent_audit.jsonl
 data/scada_vault/Incidents/
 *.bak-*
+
+*D:\Machine learning\data analyze Projects\phase 3 car-factory-electrical-data\tools*
+# evidence artifacts are portfolio proof - keep tracked
+!docs/evidence/*.jsonl
