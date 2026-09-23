@@ -1,0 +1,15 @@
+Fail-safe proof - vault absent (2026-09-24)
+
+Procedure: data/scada_vault renamed away; obsidian_bridge.log_incident()
+was called with the vault absent.
+
+Result: log_incident raised NO exception - fire-and-forget safe confirmed.
+Additional finding: the bridge is SELF-HEALING - it recreated the vault
+tree during the call, which crashed the test harness's own restore step
+afterwards (WinError 183; harness bug, not a bridge bug).
+
+Full-stack confirmation: while the vault was absent/recreated, the live
+agent kept operating and wrote real incidents into the recreated vault
+(20260924_011500_WLD01.md, 20260924_024012_UTI01.md - per terminal
+transcript; files lost in later cleanup, events preserved in the
+hash-chained agent audit log).

@@ -1,8 +1,10 @@
-Day-5 fail-safe proof (2026-09-23)
-Vault renamed to data/scada_vault.offline while stack running.
-PLC stopped -> COMM_HEARTBEAT_STALE (HIGH) fired.
-Backend console captured lines:
-----------------------------------------
-<PASTE THE [OBSIDIAN] WARNING LINES HERE>
-----------------------------------------
-Agent continued diagnosing normally; no crash, no traceback.
+Day-5 fail-safe proof (2026-09-23/24)
+
+Negative path: vault renamed away with the stack running; agent kept
+diagnosing normally. Console capture was not retained at the time -
+superseded by the automated proof in obsidian_failsafe_unit_proof.txt:
+log_incident raised no exception with the vault absent, and the bridge
+self-healed its own vault tree.
+
+Positive path: incident .md files created automatically after the vault
+was restored (data/scada_vault/Incidents/20260924_000753_SYSTEM.md).

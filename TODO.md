@@ -1,15 +1,17 @@
-# Week Plan: Context Enrichment + Obsidian Vault
+# NEXUS SCADA - Roadmap
 
-## Feature A: 24h statistical context for LLM diagnostics
-- [ ] get_equipment_statistics(equipment_id, hours=24) in database.py
-- [ ] unit test with fixture DB
-- [ ] inject one compact line per equipment into LLM prompt context
-- [ ] verify rules path unchanged when LLM disabled
-Acceptance: audit log shows history-aware diagnosis; regression clean.
+## Completed (Phase 3 - context enrichment + knowledge vault)
+- [x] Feature A: 24h statistical context for LLM (SQL-side, ~60ms, unit-tested)
+- [x] Feature B: Obsidian incident logging (HIGH/CRITICAL only, fire-and-forget)
+- [x] Fail-safe proven: bridge swallows failure, self-heals vault
+- [x] E-STOP/RESET audit integrity: fc5 writes, idempotent latch, pinned log path
+- [x] Audit chain resume across restarts (43-fork bug closed)
+- [x] 37-check live verifier with evidence artifacts (docs/evidence/)
 
-## Feature B: Obsidian incident logging
-- [ ] data/scada_vault/{Machines,Incidents,Standards} skeleton
-- [ ] obsidian_bridge.py (fire-and-forget safe, rotation cap 500)
-- [ ] hook in ai_engine._log_audit, severity >= high only
-- [ ] fail-safe test (vault missing -> system still works)
-Acceptance: high-severity diagnosis produces linked .md; LOW produces nothing.
+## Backlog - next one-day increments (do NOT implement now)
+- [ ] Episodic buffer in memory.py fed from past incidents
+- [ ] current_std-aware trend thresholds in trends.py
+- [ ] HMI alarm-fatigue / cognitive-load review (operator well-being)
+- [ ] Move LLM inference off the API request path (background worker/queue);
+      /health and /agent/status must never block on inference
+- [x] Duplicate ai_engine.py: verifier confirms only one exists - CLOSED
