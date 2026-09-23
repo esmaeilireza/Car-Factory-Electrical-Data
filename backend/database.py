@@ -9,6 +9,8 @@ FIXES APPLIED:
 - Constructor accepts optional db_path for unit testing
 - get_equipment_statistics provides LLM-ready statistical context
 - get_equipment_statistics uses SQL-side aggregation (avoids pulling ~20k rows into Python)
+- Partial index on trip_word > 0 for fast last-trip lookups
+- Index on alarm_events(equipment_id, timestamp) for fast alarm count queries
 """
 import sqlite3
 import os
@@ -78,6 +80,27 @@ class ScadaDatabase:
                 CREATE INDEX IF NOT EXISTS idx_equipment_time
                 ON equipment_data(equipment_id, timestamp)
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_equipment_trips ON equipment_data (equipment_id, id) WHERE trip_word > 0")
+            # alarm_events must exist before its index below
+            # (the deployed DB has it from an earlier era; fresh DBs need it here)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alarm_events (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                timestamp TEXT NOT NULL,
+                                equipment_id TEXT NOT NULL,
+                                alarm_type TEXT NOT NULL,
+                                ansi_code TEXT,
+                                description TEXT,
+                                severity TEXT DEFAULT 'MEDIUM',
+                                status TEXT DEFAULT 'ACTIVE',
+                                acknowledged INTEGER DEFAULT 0,
+                                acknowledged_at TEXT,
+                                acknowledged_by TEXT
+                            )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_alarm_events_eq ON alarm_events (equipment_id, timestamp)")
 
             # Alarm events table
             cursor.execute("""

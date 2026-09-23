@@ -25,7 +25,25 @@ class AuditLogger:
             path = project_root / "data" / "agent_audit.jsonl"
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Chain resume: seed from the last record on disk so a restart
+        # continues the existing chain instead of forking it. Tamper
+        # evidence must survive process restarts.
         self.prev_hash = "GENESIS"
+        if self.path.exists():
+            try:
+                with open(self.path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            rec = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if rec.get("hash"):
+                            self.prev_hash = rec["hash"]
+            except Exception as e:
+                print(f"[AUDIT] Chain resume failed, starting fresh: {e}")
 
     def log(self, event: str, payload: Dict[str, Any]) -> None:
         record = {
