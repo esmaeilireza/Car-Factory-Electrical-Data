@@ -1,0 +1,130 @@
+{
+  "generated": "2026-09-24T00:13:15",
+  "mode": {
+    "live": true,
+    "wait": 0,
+    "skip_pytest": false
+  },
+  "summary": {
+    "pass": 18,
+    "warn": 1,
+    "fail": 4
+  },
+  "checks": [
+    {
+      "name": "GGUF model file",
+      "status": "PASS",
+      "detail": "1396 MB"
+    },
+    {
+      "name": "source: backend/api.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: backend/database.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: plc_simulator/modbus_server.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: dashboard/streamlit_app.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: hmi/hmi_gui.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/agent.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/llm_reasoner.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "PLC Modbus :5020",
+      "status": "FAIL",
+      "detail": "NOT RUNNING"
+    },
+    {
+      "name": "Backend :8000",
+      "status": "FAIL",
+      "detail": "NOT RUNNING"
+    },
+    {
+      "name": "Streamlit :8501",
+      "status": "WARN",
+      "detail": "not running"
+    },
+    {
+      "name": "PLC audit at pinned path",
+      "status": "PASS",
+      "detail": "plc_simulator\\audit_log.jsonl"
+    },
+    {
+      "name": "No stray audit_log.jsonl copies",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "agent_audit hash-chain linkage",
+      "status": "PASS",
+      "detail": "251 records, linkage intact"
+    },
+    {
+      "name": "Agent loop alive (entry < 120s)",
+      "status": "PASS",
+      "detail": "last entry 61s old"
+    },
+    {
+      "name": "Telemetry pipeline LIVE (<15s)",
+      "status": "FAIL",
+      "detail": "146839 rows, newest=2026-09-24T00:12:11"
+    },
+    {
+      "name": "Theta flowing (payload-fix regression)",
+      "status": "PASS",
+      "detail": "theta present"
+    },
+    {
+      "name": "status column stores TEXT",
+      "status": "PASS",
+      "detail": "types: ['text']"
+    },
+    {
+      "name": "get_equipment_statistics",
+      "status": "PASS",
+      "detail": "69.6 ms"
+    },
+    {
+      "name": "Statistics perf tripwire (<400ms)",
+      "status": "PASS",
+      "detail": "69.6 ms"
+    },
+    {
+      "name": "Single ai_engine.py (Day 7.3 debt)",
+      "status": "PASS",
+      "detail": "models\\ai_engine.py"
+    },
+    {
+      "name": "tests/ suite passes",
+      "status": "PASS",
+      "detail": "2 passed in 10.95s"
+    },
+    {
+      "name": "PLC connection",
+      "status": "FAIL",
+      "detail": "cannot reach 127.0.0.1:5020"
+    }
+  ]
+}
