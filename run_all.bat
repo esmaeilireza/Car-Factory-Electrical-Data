@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title NEXUS SCADA Orchestrator & Production Launcher
+title NEXUS SCADA Orchestrator and Production Launcher
 
 REM ============================================================================
 REM  NEXUS SCADA - Production-Grade Distributed Launcher
@@ -97,7 +97,7 @@ start "NEXUS-2-API" /D "%ROOT%" cmd /k "title NEXUS BACKEND API && "%VENV_PY%" -
 
 echo.
 echo ============================================================================
-echo   STAGE 3: Active Health Verification (Waiting for Backend & LLM)
+echo   STAGE 3: Active Health Verification (Waiting for Backend and LLM)
 echo ============================================================================
 
 set /a RETRY_COUNT=0
@@ -133,7 +133,7 @@ echo [WARN] Proceeding to launch user interfaces despite backend health timeout.
 :LAUNCH_INTERFACES
 echo.
 echo ============================================================================
-echo   STAGE 4: Launching Human-Machine Interfaces (HMI & Dashboard)
+echo   STAGE 4: Launching Human-Machine Interfaces (HMI and Dashboard)
 echo ============================================================================
 
 REM --- Step 3: Launch Streamlit Analytics Dashboard ---
@@ -149,7 +149,7 @@ echo ===========================================================================
 echo   SYSTEM DEPLOYMENT SUCCESSFUL
 echo ============================================================================
 echo   [+] Modbus PLC TCP Server : 127.0.0.1:5020
-echo   [+] Backend REST & AI     : http://127.0.0.1:8000
+echo   [+] Backend REST and AI     : http://127.0.0.1:8000
 echo   [+] Interactive OpenAPI   : http://127.0.0.1:8000/docs
 echo   [+] Streamlit UI          : http://127.0.0.1:8501
 echo.

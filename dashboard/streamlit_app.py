@@ -910,7 +910,8 @@ def read_all_equipment(client):
             status = STATUS_MAP.get(motor_state, "STOPPED")
 
         records.append({
-            "timestamp": d.get("timestamp", now),
+            "timestamp": datetime.fromisoformat(str(d.get("timestamp", now)))
+             if d.get("timestamp") else now,
             "equipment_id": eq_id,
             "equipment_name": cfg["name"],
             "area": cfg["area"],

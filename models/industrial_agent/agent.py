@@ -98,9 +98,11 @@ class IndustrialCognitiveAgent:
         self,
         equipment_data: Dict[str, Dict[str, Any]],
         system_status: Optional[Dict[str, Any]] = None,
+        stats: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
         now = time.time()
         self.last_update_time = now
+        self._latest_stats = stats or {}
 
         if system_status:
             self.estop_active = bool(system_status.get("estop_active", self.estop_active))
