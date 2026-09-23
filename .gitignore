@@ -48,3 +48,4 @@ data/*.db-wal
 data/*.db-shm
 data/agent_audit.jsonl
 data/scada_vault/Incidents/
+*.bak-*

@@ -96,7 +96,7 @@ async def send_to_backend(equipment_id: str, data: dict):
 # ==========================================
 # Security & Audit Config
 # ==========================================
-AUDIT_LOG_PATH = Path("audit_log.jsonl")
+AUDIT_LOG_PATH = Path(__file__).resolve().parent / "audit_log.jsonl"
 RATE_LIMIT_WRITES_PER_SEC = 10
 WRITE_ALLOWLIST_COILS = {0, 1, 2, 3, 4, 5, 6, 7}
 WRITE_ALLOWLIST_REGS = set(range(12, 108, 18))
@@ -174,6 +174,11 @@ class SafeSlaveContext(ModbusSlaveContext):
         # --- Coil Writes (FC 1/5/15) ---
         if fc in (1, 5, 15) and address == 0:
             asyncio.ensure_future(self._handle_coil_write(values))
+        elif fc == 5 and address in (6, 7):
+            # Single-coil write (fc5) to E-STOP/RESET: route into the block handler
+            block = [0] * 8
+            block[address] = values[0]
+            asyncio.ensure_future(self._handle_coil_write(block))
 
         # --- Register Writes for Fault Injection (FC 3/6/16) ---
         elif fc in (3, 6, 16) and 150 <= address <= 155:
@@ -193,10 +198,11 @@ class SafeSlaveContext(ModbusSlaveContext):
 
         # === E-STOP (CO[6]) — latch globally ===
         if len(coil_values) > 6 and coil_values[6]:
-            plc.emergency_stop_all()
-            # Auto-clear the E-STOP coil
+            if not plc.estop_latched:
+                plc.emergency_stop_all()
+                await audit_log("E-STOP", source_ip, 6, 0, 1, "LATCHED")
+            # Always consume the request - prevents repeat-trigger floods
             super().setValues(1, 6, [0])
-            await audit_log("E-STOP", source_ip, 6, 0, 1, "LATCHED")
             return
 
         # === RESET (CO[7]) — clear E-STOP latch + per-equipment lockouts ===
