@@ -179,6 +179,11 @@ class SafeSlaveContext(ModbusSlaveContext):
             block = [0] * 8
             block[address] = values[0]
             asyncio.ensure_future(self._handle_coil_write(block))
+        elif fc == 5 and 0 <= address <= 5:
+            # fc5 single-coil motor write: dedicated handler so the other
+            # five motors are never disturbed.
+            asyncio.ensure_future(
+                self._handle_single_motor_write(address, values[0]))
 
         # --- Register Writes for Fault Injection (FC 3/6/16) ---
         elif fc in (3, 6, 16) and 150 <= address <= 155:
@@ -250,6 +255,25 @@ class SafeSlaveContext(ModbusSlaveContext):
             else:
                 eq.stop_motor()
                 await audit_log("MOTOR_STOP", source_ip, i, 1, 0, "OK")
+
+    async def _handle_single_motor_write(self, coil_index: int, new_state: int):
+        """Handle one fc5 motor-coil write without touching other motors."""
+        source_ip = "operator"
+        eq = plc.equipment[self._eq_ids[coil_index]]
+        if new_state:
+            if plc.estop_latched:
+                await audit_log("MOTOR_START", source_ip, coil_index, 0, 1,
+                                "ESTOP-LOCKOUT")
+                super().setValues(1, coil_index, [0])
+                return
+            success = eq.start_motor()
+            await audit_log("MOTOR_START", source_ip, coil_index, 0, 1,
+                            "OK" if success else "LOCKOUT")
+            if not success:
+                super().setValues(1, coil_index, [0])
+        else:
+            eq.stop_motor()
+            await audit_log("MOTOR_STOP", source_ip, coil_index, 1, 0, "OK")
 
     async def _handle_fault_inject(self, address: int, values: list[int]):
         """Process fault injection register writes."""

@@ -7,6 +7,7 @@ FIXES APPLIED:
 - Separated alarm/trip/lockout concerns (no more bit 15 overload)
 - Thread-safe state mutations via internal locking
 - Clean separation between warnings (alarms) and faults (trips)
+- Idempotent emergency_stop() prevents console flood when E-STOP is latched
 """
 
 import math
@@ -266,11 +267,13 @@ class Equipment:
             print(f"[PLC] ⏹️  {self.config.equipment_id} Motor STOPPED")
 
     def emergency_stop(self):
-        """Immediate stop + cancel pending start."""
+        """Immediate stop + cancel pending start. Idempotent: silent when already stopped."""
         with self._lock:
+            if self._motor_state == MotorState.STOPPED:
+                return
             self._motor_state = MotorState.STOPPED
             self._start_pending_until = 0.0
-            print(f"[E-STOP] 🚨 {self.config.equipment_id} Emergency stop")
+            print(f"[E-STOP] {self.config.equipment_id} Emergency stop")
 
     def try_reset(self, I=None, V=None, temp=None) -> bool:
         """Reset protection lockout using current or provided values."""
@@ -318,7 +321,7 @@ class Equipment:
             self._last_update_time = now
             self._heartbeat = (self._heartbeat + 1) % 65536
 
-            # STEP 1: State machine transition
+            # STEP 1: State machine transitions
             if self._motor_state == MotorState.START_PENDING:
                 if now >= self._start_pending_until:
                     self._motor_state = MotorState.RUNNING

@@ -259,15 +259,24 @@ def live_probes():
     w = sysword()
     record("HR[120] bit0 set while latched", w is not None and bool(w & 1), f"word={w}")
 
-    # Probe the exact write shape hmi_gui.py uses for motor buttons (fc5, addr 2)
+    # Phase A: fc5 motor write while latched -> correct behavior = ESTOP-LOCKOUT audit
+    lk0 = events("MOTOR_START")
+    c.write_coil(EQ_IDS.index("PNT-01"), True, slave=1)
+    time.sleep(1.5)
+    record("fc5 motor write under latch reaches handler",
+           events("MOTOR_START") - lk0 >= 1, "ESTOP-LOCKOUT audited")
+
+    c.write_coil(7, True, slave=1); time.sleep(1.5)      # RESET
+
+    # Phase B: fc5 motor START while clear (the real HMI/dashboard button path)
+    c.write_coil(EQ_IDS.index("PNT-01"), False, slave=1)
+    time.sleep(1.5)
     st0 = motor_state("PNT-01")
     c.write_coil(EQ_IDS.index("PNT-01"), True, slave=1)
     time.sleep(4.0)
     st1 = motor_state("PNT-01")
     record("fc5 single-coil motor start reaches logic", st1 in (1, 2),
-           f"PNT-01 state {st0}->{st1} (0 = HMI motor path BYPASSED)", warn_only=True)
-
-    c.write_coil(7, True, slave=1); time.sleep(1.5)      # RESET
+           f"PNT-01 state {st0}->{st1}")
     w = sysword()
     record("HR[120] bit0 clear after RESET", w is not None and not (w & 1), f"word={w}")
 

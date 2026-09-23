@@ -8,6 +8,7 @@ FIXES APPLIED:
 - acknowledge_alarm returns False when no row was actually updated
 - Constructor accepts optional db_path for unit testing
 - get_equipment_statistics provides LLM-ready statistical context
+- get_equipment_statistics uses SQL-side aggregation (avoids pulling ~20k rows into Python)
 """
 import sqlite3
 import os
@@ -283,26 +284,29 @@ class ScadaDatabase:
             window_start = (now - timedelta(hours=hours)).isoformat()
             hour_start = (now - timedelta(hours=1)).isoformat()
 
-            # --- Telemetry aggregates for the window ---
-            rows = conn.execute(
+            # --- Telemetry aggregates for the window (SQL-side; avoids
+            #     pulling ~20k rows into Python per agent cycle) ---
+            row = conn.execute(
                 """
-                SELECT current, theta_per_mille
+                SELECT COUNT(*),
+                       AVG(current),
+                       AVG(current * current),
+                       AVG(theta_per_mille),
+                       MAX(theta_per_mille)
                 FROM equipment_data
                 WHERE equipment_id = ? AND timestamp > ?
                 """,
                 (equipment_id, window_start),
-            ).fetchall()
+            ).fetchone()
 
-            currents = [float(r[0]) for r in rows]
-            thetas = [float(r[1]) / 10.0 for r in rows]  # stored x10 -> percent
-
-            n = len(currents)
+            n = int(row[0]) if row[0] is not None else 0
             if n > 0:
-                current_mean = sum(currents) / n
-                variance = sum((c - current_mean) ** 2 for c in currents) / n
-                current_std = variance ** 0.5
-                theta_mean = sum(thetas) / n
-                theta_max = max(thetas)
+                current_mean = float(row[1])
+                mean_sq = float(row[2])
+                # E[x^2] - E[x]^2; clamp tiny negative float error
+                current_std = max(0.0, mean_sq - current_mean ** 2) ** 0.5
+                theta_mean = float(row[3]) / 10.0   # stored x10 -> percent
+                theta_max = float(row[4]) / 10.0
             else:
                 current_mean = current_std = theta_mean = theta_max = 0.0
 
