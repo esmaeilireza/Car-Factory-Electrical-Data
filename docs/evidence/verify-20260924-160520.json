@@ -1,0 +1,270 @@
+{
+  "generated": "2026-09-24T16:05:20",
+  "mode": {
+    "live": true,
+    "wait": 90,
+    "skip_pytest": false
+  },
+  "summary": {
+    "pass": 50,
+    "warn": 0,
+    "fail": 1
+  },
+  "checks": [
+    {
+      "name": "Backend ready",
+      "status": "PASS",
+      "detail": "ready after 39s"
+    },
+    {
+      "name": "GGUF model file",
+      "status": "PASS",
+      "detail": "1396 MB"
+    },
+    {
+      "name": "source: backend/api.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: backend/database.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: plc_simulator/modbus_server.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: dashboard/streamlit_app.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: hmi/hmi_gui.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/agent.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/llm_reasoner.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "PLC Modbus :5020",
+      "status": "PASS",
+      "detail": "reachable"
+    },
+    {
+      "name": "Backend :8000",
+      "status": "PASS",
+      "detail": "reachable"
+    },
+    {
+      "name": "Streamlit :8501",
+      "status": "PASS",
+      "detail": "reachable"
+    },
+    {
+      "name": "GET /api/health",
+      "status": "PASS",
+      "detail": "status=healthy"
+    },
+    {
+      "name": "LLM available",
+      "status": "PASS",
+      "detail": "Qwen loaded"
+    },
+    {
+      "name": "6/6 equipment live",
+      "status": "PASS",
+      "detail": "6/6"
+    },
+    {
+      "name": "Real-unit values",
+      "status": "PASS",
+      "detail": "voltage=372.5493594658018"
+    },
+    {
+      "name": "LLM not echoing prompt example (last result)",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "Agent working memory populated",
+      "status": "PASS",
+      "detail": "size=6"
+    },
+    {
+      "name": "PLC audit at pinned path",
+      "status": "PASS",
+      "detail": "plc_simulator\\audit_log.jsonl"
+    },
+    {
+      "name": "No stray audit_log.jsonl copies",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "agent_audit hash-chain linkage",
+      "status": "PASS",
+      "detail": "1815 records, linkage intact"
+    },
+    {
+      "name": "Agent loop alive (entry < 120s)",
+      "status": "PASS",
+      "detail": "last entry 25s old"
+    },
+    {
+      "name": "Telemetry pipeline LIVE (<15s)",
+      "status": "PASS",
+      "detail": "202494 rows, newest=2026-09-24T16:03:50"
+    },
+    {
+      "name": "Theta flowing (payload-fix regression)",
+      "status": "PASS",
+      "detail": "theta present"
+    },
+    {
+      "name": "status column stores TEXT",
+      "status": "PASS",
+      "detail": "types: ['text']"
+    },
+    {
+      "name": "get_equipment_statistics",
+      "status": "PASS",
+      "detail": "82.0 ms"
+    },
+    {
+      "name": "Statistics perf tripwire (<400ms)",
+      "status": "PASS",
+      "detail": "82.0 ms"
+    },
+    {
+      "name": "Vault present",
+      "status": "PASS",
+      "detail": "data\\scada_vault"
+    },
+    {
+      "name": "Vault/Machines/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Vault/Standards/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Vault/Incidents/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "6 machine stubs",
+      "status": "PASS",
+      "detail": "6 files"
+    },
+    {
+      "name": "8 ANSI standard stubs",
+      "status": "PASS",
+      "detail": "8 files"
+    },
+    {
+      "name": "Machine stubs contain [[wiki-links]]",
+      "status": "PASS",
+      "detail": "6/6 linked"
+    },
+    {
+      "name": "Single ai_engine.py (Day 7.3 debt)",
+      "status": "PASS",
+      "detail": "models\\ai_engine.py"
+    },
+    {
+      "name": "tests/ suite passes",
+      "status": "PASS",
+      "detail": "2 passed in 21.19s"
+    },
+    {
+      "name": "Live RESET audited",
+      "status": "PASS",
+      "detail": "RESET entry present"
+    },
+    {
+      "name": "Live E-STOP audited EXACTLY once",
+      "status": "PASS",
+      "detail": "delta=1"
+    },
+    {
+      "name": "HR[120] bit0 set while latched",
+      "status": "PASS",
+      "detail": "word=1"
+    },
+    {
+      "name": "fc5 motor write under latch reaches handler",
+      "status": "PASS",
+      "detail": "ESTOP-LOCKOUT audited"
+    },
+    {
+      "name": "fc5 single-coil motor start reaches logic",
+      "status": "PASS",
+      "detail": "PNT-01 state 0->1"
+    },
+    {
+      "name": "HR[120] bit0 clear after RESET",
+      "status": "PASS",
+      "detail": "word=0"
+    },
+    {
+      "name": "Block restart audited (6 MOTOR_START)",
+      "status": "PASS",
+      "detail": "delta=8"
+    },
+    {
+      "name": "All motors RUNNING after restart",
+      "status": "PASS",
+      "detail": "{'STP-01': 1, 'WLD-01': 1, 'PNT-01': 1, 'ASM-01': 1, 'UTI-01': 1, 'UTI-02': 1}"
+    },
+    {
+      "name": "Fault injection audited",
+      "status": "PASS",
+      "detail": "HR[150]=4 overtemp on STP-01"
+    },
+    {
+      "name": "HIGH/CRITICAL finding emitted by rule engine",
+      "status": "PASS",
+      "detail": "LLM_DIAGNOSIS"
+    },
+    {
+      "name": "Local LLM produced a NEW diagnosis (<=180s)",
+      "status": "PASS",
+      "detail": "LLM_DIAGNOSIS"
+    },
+    {
+      "name": "LLM diagnosis not a canary echo",
+      "status": "PASS",
+      "detail": "Please check the UTI-01 and UTI-02 motors and generators for"
+    },
+    {
+      "name": "Obsidian incident file auto-created (Feature B)",
+      "status": "PASS",
+      "detail": "20260924_160507_SYSTEM.md"
+    },
+    {
+      "name": "Incident contains [[wiki-links]]",
+      "status": "FAIL",
+      "detail": "0 wiki-links"
+    },
+    {
+      "name": "Plant restored after cognitive probe",
+      "status": "PASS",
+      "detail": "{'STP-01': 1, 'WLD-01': 1, 'PNT-01': 1, 'ASM-01': 1, 'UTI-01': 1, 'UTI-02': 1}"
+    }
+  ]
+}

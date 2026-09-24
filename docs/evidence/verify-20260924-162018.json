@@ -1,0 +1,155 @@
+{
+  "generated": "2026-09-24T16:20:18",
+  "mode": {
+    "live": true,
+    "wait": 0,
+    "skip_pytest": true
+  },
+  "summary": {
+    "pass": 22,
+    "warn": 1,
+    "fail": 5
+  },
+  "checks": [
+    {
+      "name": "GGUF model file",
+      "status": "PASS",
+      "detail": "1396 MB"
+    },
+    {
+      "name": "source: backend/api.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: backend/database.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: plc_simulator/modbus_server.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: dashboard/streamlit_app.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: hmi/hmi_gui.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/agent.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/llm_reasoner.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "PLC Modbus :5020",
+      "status": "FAIL",
+      "detail": "NOT RUNNING"
+    },
+    {
+      "name": "Backend :8000",
+      "status": "FAIL",
+      "detail": "NOT RUNNING"
+    },
+    {
+      "name": "Streamlit :8501",
+      "status": "WARN",
+      "detail": "not running"
+    },
+    {
+      "name": "PLC audit at pinned path",
+      "status": "PASS",
+      "detail": "plc_simulator\\audit_log.jsonl"
+    },
+    {
+      "name": "No stray audit_log.jsonl copies",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "agent_audit hash-chain linkage",
+      "status": "PASS",
+      "detail": "1874 records, linkage intact"
+    },
+    {
+      "name": "Agent loop alive (entry < 120s)",
+      "status": "FAIL",
+      "detail": "last entry 352s old"
+    },
+    {
+      "name": "Telemetry pipeline LIVE (<15s)",
+      "status": "FAIL",
+      "detail": "205588 rows, newest=2026-09-24T16:14:29"
+    },
+    {
+      "name": "Theta flowing (payload-fix regression)",
+      "status": "FAIL",
+      "detail": "no rows in 5min"
+    },
+    {
+      "name": "status column stores TEXT",
+      "status": "PASS",
+      "detail": "types: []"
+    },
+    {
+      "name": "get_equipment_statistics",
+      "status": "PASS",
+      "detail": "75.4 ms"
+    },
+    {
+      "name": "Statistics perf tripwire (<400ms)",
+      "status": "PASS",
+      "detail": "75.4 ms"
+    },
+    {
+      "name": "Vault present",
+      "status": "PASS",
+      "detail": "data\\scada_vault"
+    },
+    {
+      "name": "Vault/Machines/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Vault/Standards/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Vault/Incidents/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "6 machine stubs",
+      "status": "PASS",
+      "detail": "6 files"
+    },
+    {
+      "name": "8 ANSI standard stubs",
+      "status": "PASS",
+      "detail": "8 files"
+    },
+    {
+      "name": "Machine stubs contain [[wiki-links]]",
+      "status": "PASS",
+      "detail": "6/6 linked"
+    },
+    {
+      "name": "Single ai_engine.py (Day 7.3 debt)",
+      "status": "PASS",
+      "detail": "models\\ai_engine.py"
+    }
+  ]
+}

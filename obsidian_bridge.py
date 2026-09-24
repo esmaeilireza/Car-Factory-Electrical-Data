@@ -21,6 +21,11 @@ INCIDENTS_DIR = VAULT_DIR / "Incidents"
 ARCHIVE_DIR = INCIDENTS_DIR / "archive"
 ROTATION_LIMIT = 500
 
+# Known equipment ids. SYSTEM-level findings carry no machine attribution,
+# so the diagnosis text is mined for these ids to keep the knowledge graph
+# connected (every incident ends up with at least one resolvable link).
+KNOWN_EQ_IDS = ["STP-01", "WLD-01", "PNT-01", "ASM-01", "UTI-01", "UTI-02"]
+
 
 def _rotate_if_needed() -> None:
     """Move oldest incident files to archive when the cap is exceeded."""
@@ -51,7 +56,16 @@ def log_incident(
     try:
         INCIDENTS_DIR.mkdir(parents=True, exist_ok=True)
         now = datetime.now()
-        machine_links = ", ".join(f"[[{eq}]]" for eq in equipment_ids) or "SYSTEM"
+        real_ids = [eq for eq in equipment_ids if eq != "SYSTEM"]
+        machine_links = ", ".join(f"[[{eq}]]" for eq in real_ids) or "SYSTEM"
+
+        # SYSTEM-level findings: mine the diagnosis/action text for known
+        # equipment ids so the incident carries at least one resolvable
+        # [[link]] and stays connected to the knowledge graph.
+        referenced = []
+        if not real_ids:
+            haystack = f"{diagnosis} {recommended_action}"
+            referenced = [eq for eq in KNOWN_EQ_IDS if eq in haystack]
         standard_link = f"[[ANSI-{fault_type}]]" if fault_type.startswith("ANSI-") else fault_type
 
         filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{equipment_ids[0] if equipment_ids else 'SYSTEM'}.md"
@@ -80,8 +94,14 @@ source: {source}
 
 ## Linked Equipment
 """
-        for eq in equipment_ids:
+        for eq in real_ids:
             content += f"- [[{eq}]]\n"
+        if referenced:
+            content += "\n### Linked References (mined from diagnosis)\n\n"
+            for eq in referenced:
+                content += f"- [[{eq}]]\n"
+        if not real_ids and not referenced:
+            content += "- None (system-level finding; no specific machine named)\n"
 
         filepath.write_text(content, encoding="utf-8")
         _rotate_if_needed()
