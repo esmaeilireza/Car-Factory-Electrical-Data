@@ -294,8 +294,15 @@ class Equipment:
             return success
 
     def set_load(self, load_percent: float):
-        """Set load factor (0-100%)."""
+        """Set load factor (0-100%).
+
+        While an operator setpoint (HR[160+i]) is latched, autonomous
+        load writes are IGNORED - the operator owns the load factor.
+        On release (setpoint 0), autonomous generation resumes.
+        """
         with self._lock:
+            if getattr(self, "load_setpoint", 0.0) > 0:
+                return
             self._load_factor = max(0.0, min(1.0, load_percent / 100.0))
 
     def inject_fault(self, fault_type: str) -> bool:

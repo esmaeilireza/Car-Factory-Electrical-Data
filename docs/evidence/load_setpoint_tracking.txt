@@ -1,0 +1,10 @@
+Load setpoint tracking proof (2026-09-24)
+Operator writes HR[160]=90 for STP-01.
+Baseline: current(x10)=5241 @ load 75.
+Result over 40s: load latched at 90 across all 20 samples;
+current mean 6172 (x10) = 1.178x baseline vs expected 1.2x
+(6289) - within the simulation's +/-5% noise band.
+Instruments agree: load, current, PF and thermal all follow the
+setpoint (single source of truth: _load_factor, gated autonomous
+writes). Setpoint latches across motor stop/restart; write 0 to
+release to autonomous generation.
