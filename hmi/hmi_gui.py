@@ -1515,6 +1515,8 @@ class DeltaHMISimulator:
 
 def main():
     root = tk.Tk()
+    root.geometry("1280x860")
+    root.minsize(1100, 700)
     app = DeltaHMISimulator(root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
