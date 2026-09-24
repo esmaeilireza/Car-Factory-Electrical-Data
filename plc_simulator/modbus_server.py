@@ -188,6 +188,10 @@ class SafeSlaveContext(ModbusSlaveContext):
         # --- Register Writes for Fault Injection (FC 3/6/16) ---
         elif fc in (3, 6, 16) and 150 <= address <= 155:
             asyncio.ensure_future(self._handle_fault_inject(address, values))
+        elif fc in (3, 6, 16) and 160 <= address <= 165:
+            # Operator load setpoints: written to the datastore (readable back
+            # by any client) AND recorded by the PLC physics loop.
+            asyncio.ensure_future(self._handle_setpoint_write(address, values))
 
         # Always apply the write to the underlying datastore
         super().setValues(fc, address, values)
@@ -274,6 +278,28 @@ class SafeSlaveContext(ModbusSlaveContext):
         else:
             eq.stop_motor()
             await audit_log("MOTOR_STOP", source_ip, coil_index, 1, 0, "OK")
+
+    async def _handle_setpoint_write(self, address: int, values: list[int]):
+        """Process operator load setpoint writes (HR[160-165]).
+
+        Unlike fault injection, the value is NOT auto-cleared: the setpoint
+        latches until the operator writes 0 (release to autonomous mode).
+        The write itself still lands in the datastore via super().setValues.
+        """
+        source_ip = "operator"
+        if not await check_rate_limit(source_ip):
+            return
+
+        idx = address - 160
+        if idx < 0 or idx >= len(self._eq_ids):
+            return
+
+        new_val = values[0] if values else 0
+        plc.set_load_setpoint(idx, int(new_val))
+        await audit_log(
+            "LOAD_SETPOINT", source_ip, address, 0, int(new_val),
+            "OK" if new_val > 0 else "RELEASED",
+        )
 
     async def _handle_fault_inject(self, address: int, values: list[int]):
         """Process fault injection register writes."""

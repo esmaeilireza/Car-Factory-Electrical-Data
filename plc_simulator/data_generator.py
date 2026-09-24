@@ -402,6 +402,17 @@ class Equipment:
             self.data.energy += self.data.active_power * (dt / 3600)
             self.data.load = self._load_factor * 100
 
+            # Operator setpoint override (HR[160+i]): ramp actual load
+            # toward the operator target while the motor is running, so
+            # current/power/thermal all follow realistically. 0 or unset
+            # = autonomous generation (no override). Setpoint latches
+            # across stop/restart; write 0 to release.
+            _sp = getattr(self, "load_setpoint", 0.0)
+            if _sp > 0 and self._motor_state == MotorState.RUNNING:
+                _step = 2.0  # percent per tick: smooth ramp, no jumps
+                _delta = _sp - self.data.load
+                self.data.load += max(-_step, min(_step, _delta))
+
             if self._start_time:
                 self.data.running_time = (time.time() - self._start_time) / 60
 
@@ -532,6 +543,17 @@ class FactoryPLC:
         for eq in self.equipment.values():
             eq.emergency_stop()
         print("[E-STOP] 🚨 ALL EQUIPMENT STOPPED + LATCHED")
+
+    def set_load_setpoint(self, index: int, value: int) -> None:
+        """Operator load setpoint (HR[160+i]).
+
+        0 releases the machine back to autonomous load generation.
+        Nonzero latches: while the motor runs, actual load ramps toward
+        this target instead of the autonomous load factor.
+        """
+        if 0 <= index < len(EQ_ORDER):
+            eq = self.equipment[EQ_ORDER[index]]
+            eq.load_setpoint = float(max(0, min(100, value)))
 
     def clear_estop_latch(self) -> bool:
         """Clear global E-STOP latch."""

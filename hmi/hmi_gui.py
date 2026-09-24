@@ -1289,10 +1289,12 @@ class DeltaHMISimulator:
             return
 
         try:
-            offset = self.get_current_register_offset()
+            # Write the operator SETPOINT (HR[160+eq]); the PLC ramps the
+            # actual load register toward it. 0 = release to autonomous.
+            coil_idx = self.get_current_coil_index()
             self.client.write_register(
-                address=offset + REG_LOAD,
-                value=int(float(value)),
+                address=160 + coil_idx,
+                value=max(0, min(100, int(float(value)))),
                 slave=1,
             )
 
