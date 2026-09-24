@@ -1,0 +1,1 @@
+E-STOP coil write -> HR[120] bit0 visible: 115.3 ms (2026-09-24)

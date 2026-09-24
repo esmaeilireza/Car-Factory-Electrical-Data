@@ -370,6 +370,7 @@ class Equipment:
             self.data.apparent_power = 0.0
             self.data.power_factor = 0.0
             self.data.load = 0.0
+            self._sp_was_active = False
             self.data.temperature += (PROT_CONFIG["ambient"] - self.data.temperature) * 0.01
         else:
             self.data.voltage = self._base_voltage * (1 + random.uniform(-0.02, 0.02))
@@ -408,10 +409,26 @@ class Equipment:
             # = autonomous generation (no override). Setpoint latches
             # across stop/restart; write 0 to release.
             _sp = getattr(self, "load_setpoint", 0.0)
-            if _sp > 0 and self._motor_state == MotorState.RUNNING:
-                _step = 2.0  # percent per tick: smooth ramp, no jumps
-                _delta = _sp - self.data.load
-                self.data.load += max(-_step, min(_step, _delta))
+            if _sp > 0 and is_running:
+                # Drive the load FACTOR: current, PF and the thermal target
+                # all derive from _load_factor, so the whole instrument
+                # cluster follows the operator setpoint. Progress state is
+                # persistent; re-arms from the actual value after any
+                # inactive period so restarts ramp cleanly. Current/PF lag
+                # load by one tick because they are computed earlier in
+                # this method.
+                prog = getattr(self, "_sp_progress", None)
+                if prog is None or not getattr(self, "_sp_was_active", False):
+                    prog = self._load_factor * 100.0
+                _step = 2.0  # percent per tick
+                _delta = _sp - prog
+                prog += max(-_step, min(_step, _delta))
+                self._sp_progress = prog
+                self._sp_was_active = True
+                self._load_factor = max(0.0, min(1.0, prog / 100.0))
+                self.data.load = prog
+            else:
+                self._sp_was_active = False
 
             if self._start_time:
                 self.data.running_time = (time.time() - self._start_time) / 60
