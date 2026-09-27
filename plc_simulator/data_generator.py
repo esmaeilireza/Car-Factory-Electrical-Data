@@ -1,5 +1,5 @@
 """
-Data Generator for Delta PLC Simulator (Refactored)
+Data Generator for Industrial PLC Simulator (Refactored)
 Simulates 6 equipment from a car factory with thread-safe state management.
 
 FIXES APPLIED:

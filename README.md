@@ -52,7 +52,7 @@ The system enforces a strict **Single Source of Truth** topology. The PLC simula
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
-│                   Delta PLC Simulator (Python)                     │
+│                   Industrial PLC Simulator (Python)                     │
 │   6 Equipment × 18 Registers + HR[120] System Status Word          │
 │   ANSI Protection Layer (49/50/51/27/59/38) + E-STOP Latching      │
 └──────────────────────────────┬─────────────────────────────────────┘

@@ -336,7 +336,6 @@ def cognitive_probes(c):
     audit_start_line = AUDIT_AGENT.read_text(encoding='utf-8').count('\n') if AUDIT_AGENT.is_file() else 0
     start_ts = time.time() - 2
     start = datetime.now() - timedelta(seconds=2)
-    start = datetime.now() - timedelta(seconds=2)
     inc_dir = VAULT / "Incidents"
     inc_before = {p.name for p in inc_dir.glob("*.md")} if inc_dir.is_dir() else set()
     # (audit_pos removed - replaced by audit_start_line above)

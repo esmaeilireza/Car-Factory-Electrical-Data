@@ -1,5 +1,5 @@
 """
-Modbus TCP Server - Simulates Delta PLC for 6 equipment
+Modbus TCP Server - Simulates an industrial PLC for 6 equipment
 Port: 5020 (bind 127.0.0.1 for security)
 
 FEATURES:
@@ -414,7 +414,7 @@ def create_modbus_context():
 def print_startup_banner():
     print()
     print("=" * 70)
-    print("⚡ DELTA PLC SIMULATOR - Car Factory")
+    print("⚡ INDUSTRIAL PLC SIMULATOR - Car Factory")
     print("🛡️  WITH ANSI PROTECTION + E-STOP LATCH")
     print("=" * 70)
     print(f"🌐 IP: 127.0.0.1  |  Port: 5020 (localhost only)")

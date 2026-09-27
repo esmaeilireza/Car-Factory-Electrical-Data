@@ -1,5 +1,5 @@
 """
-Optimized HMI Simulator - Delta DOP-B style for 6 equipment.
+Optimized HMI Simulator - NEXUS-101 style for 6 equipment.
 
 This version:
 - Corrects Modbus register mapping to match data_generator.py.
@@ -153,14 +153,14 @@ COLORS = {
 # Main HMI application
 # =============================================================================
 
-class DeltaHMISimulator:
+class NexusHMISimulator:
     """
-    Delta DOP-B style HMI simulator with NEXUS AI advisor panel.
+    NEXUS-101 style HMI simulator with NEXUS AI advisor panel.
     """
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Delta DOP-B HMI - Car Factory + NEXUS AI")
+        self.root.title("INDUSTRIAL HMI PROTOTYPE - CAR FACTORY + NEXUS AI SUPERVISOR")
         self.root.state("zoomed")
         self.root.configure(bg=COLORS["bg_dark"])
 
@@ -233,7 +233,7 @@ class DeltaHMISimulator:
 
         tk.Label(
             title_frame,
-            text="⚡ DELTA DOP-B HMI - Car Factory + NEXUS AI SUPERVISOR",
+            text="⚡ INDUSTRIAL HMI PROTOTYPE - CAR FACTORY + NEXUS AI SUPERVISOR SUPERVISOR",
             font=("Arial", 16, "bold"),
             bg=COLORS["bg_header"],
             fg=COLORS["cyan"],
@@ -700,7 +700,7 @@ class DeltaHMISimulator:
         tk.Label(
             self.root,
             text=(
-                "Delta DOP-B Simulator | Modbus TCP: 127.0.0.1:5020 "
+                "NEXUS-101 Simulator | Modbus TCP: 127.0.0.1:5020 "
                 "| ANSI Protection | HR[120] Synced | NEXUS AI Advisor"
             ),
             font=("Arial", 9),
@@ -721,7 +721,7 @@ class DeltaHMISimulator:
                 btn.config(relief=tk.RAISED, bg=COLORS["bg_header"], fg=COLORS["text_white"])
 
     def open_keypad(self):
-        """DOP-B style numeric keypad for the Load setpoint."""
+        """ISA-101 style numeric keypad for the Load setpoint."""
         if self.estop_active:
             return
 
@@ -1519,7 +1519,7 @@ def main():
     root = tk.Tk()
     root.geometry("1280x860")
     root.minsize(1100, 700)
-    app = DeltaHMISimulator(root)
+    app = NexusHMISimulator(root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
 

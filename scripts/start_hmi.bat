@@ -6,7 +6,7 @@ cd /d "D:\Machine learning\data analyze Projects\phase 3 car-factory-electrical-
 call "venv\Scripts\activate.bat"
 
 echo ========================================
-echo   NEXUS SCADA HMI (Delta DOP-B Style)
+echo   NEXUS SCADA HMI (ISA-101 Style)
 echo ========================================
 
 cd hmi

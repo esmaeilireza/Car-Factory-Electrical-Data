@@ -169,7 +169,7 @@ edits.append(("R6 update_display restore",
             self.root.after(POLL_INTERVAL_MS, self.update_display)
 """))
 
-# R7: new methods - lamp navigation + DOP-B numeric keypad (insert before connect_plc)
+# R7: new methods - lamp navigation + ISA-101 numeric keypad (insert before connect_plc)
 edits.append(("R7 navigation + keypad",
 """    def connect_plc(self):""",
 """    def select_equipment(self, idx: int):
@@ -182,7 +182,7 @@ edits.append(("R7 navigation + keypad",
                 btn.config(relief=tk.RAISED, bg=COLORS["bg_header"], fg=COLORS["text_white"])
 
     def open_keypad(self):
-        \"\"\"DOP-B style numeric keypad for the Load setpoint.\"\"\"
+        \"\"\"ISA-101 style numeric keypad for the Load setpoint.\"\"\"
         if self.estop_active:
             return
 

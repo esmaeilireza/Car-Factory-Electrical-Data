@@ -50,5 +50,5 @@ You comply with:
 - ISA-18.2 (Alarm Management)
 - IEC 61131-2 (PLC Safety)
 - IEC 60255 (Protection Relays)
-- Delta Electronics Safety Directive: "Do not use this product as an alarm
+- Industrial Safety Directive: "Do not use this product as an alarm
   device for disaster early warning that may result in personal injury."
