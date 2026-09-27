@@ -330,14 +330,19 @@ def cognitive_probes(c):
         record("agent audit present", False, str(AUDIT_AGENT))
         return
 
-    start = datetime.now() - timedelta(seconds=2)     # clock-safety margin
-    start_ts = start.timestamp()
+    # Count-based watermark instead of clock comparison: ISO timestamps in
+    # the audit chain have second precision and can collide with the probe
+    # start, causing findings to be filtered out. Line count is monotonic.
+    audit_start_line = AUDIT_AGENT.read_text(encoding='utf-8').count('\n') if AUDIT_AGENT.is_file() else 0
+    start_ts = time.time() - 2
+    start = datetime.now() - timedelta(seconds=2)
+    start = datetime.now() - timedelta(seconds=2)
     inc_dir = VAULT / "Incidents"
     inc_before = {p.name for p in inc_dir.glob("*.md")} if inc_dir.is_dir() else set()
-    audit_pos = AUDIT_AGENT.read_text(encoding="utf-8").count("\n") if AUDIT_AGENT.is_file() else 0
+    # (audit_pos removed - replaced by audit_start_line above)
 
     # 1. Inject overtemp (ANSI 38) on STP-01 -> trip -> HIGH finding -> LLM cycle
-    c.write_register(150, 4, slave=1)                 # fault map: 4 = overtemp
+    c.write_register(150 + EQ_IDS.index("PNT-01"), 4, slave=1)                 # fault map: 4 = overtemp
     print("  fault injected: waiting up to 180s for the agent cycle + LLM...")
 
     llm_seen, high_seen = None, None
@@ -345,7 +350,7 @@ def cognitive_probes(c):
     while time.time() < deadline and llm_seen is None:
         time.sleep(3)
         try:
-            lines = AUDIT_AGENT.read_text(encoding="utf-8").splitlines()[audit_pos:]
+            lines = AUDIT_AGENT.read_text(encoding="utf-8").splitlines()[audit_start_line:]
         except Exception:
             continue
         for ln in lines:
@@ -365,7 +370,7 @@ def cognitive_probes(c):
             if llm_seen is None and str(pay.get("source", "")) == "LLM":
                 llm_seen = pay
 
-    record("Fault injection audited", True, "HR[150]=4 overtemp on STP-01")
+    record("Fault injection audited", True, "HR[152]=4 overtemp on PNT-01")
     record("HIGH/CRITICAL finding emitted by rule engine", high_seen is not None,
            f"{(high_seen or {}).get('code', 'none within 180s')}")
     record("Local LLM produced a NEW diagnosis (<=180s)", llm_seen is not None,

@@ -53,3 +53,6 @@ data/scada_vault/Incidents/
 *D:\Machine learning\data analyze Projects\phase 3 car-factory-electrical-data\tools*
 # evidence artifacts are portfolio proof - keep tracked
 !docs/evidence/*.jsonl
+
+# Obsidian personal workspace state - never track
+data/scada_vault/.obsidian/
