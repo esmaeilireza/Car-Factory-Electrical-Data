@@ -1,0 +1,195 @@
+NEXUS SCADA REMEDIATION INTEGRATION MAP
+Generated: 2026-09-30T16:11:00+03:30
+Root: /d/Machine learning/data analyze Projects/phase 3 car-factory-electrical-data
+
+RELEVANT PYTHON FILES
+backend/api.py
+backend/database.py
+backend/remediation_api.py
+models/industrial_agent/__init__.py
+models/industrial_agent/action_policy.py
+models/industrial_agent/agent.py
+models/industrial_agent/audit.py
+models/industrial_agent/config.py
+models/industrial_agent/hmi_bridge.py
+models/industrial_agent/integration.py
+models/industrial_agent/llm_reasoner.py
+models/industrial_agent/memory.py
+models/industrial_agent/modbus_adapter.py
+models/industrial_agent/models.py
+models/industrial_agent/remediation/__init__.py
+models/industrial_agent/remediation/agent.py
+models/industrial_agent/remediation/engine.py
+models/industrial_agent/remediation/policy.py
+models/industrial_agent/remediation/safety_guard.py
+models/industrial_agent/remediation_hook.py
+models/industrial_agent/rules.py
+models/industrial_agent/state_machine.py
+models/industrial_agent/tests/test_smoke.py
+models/industrial_agent/trends.py
+scripts/archive/patch_hmi.py
+scripts/archive/patch_phase3.py
+scripts/autonomous_remediation_probe.py
+tests/quick_test.py
+tests/test_telemetry_stats.py
+tests/unit/test_remediation_engine.py
+
+REMEDIATION PACKAGE FILES
+models/industrial_agent/remediation/__init__.py
+models/industrial_agent/remediation/agent.py
+models/industrial_agent/remediation/engine.py
+models/industrial_agent/remediation/policy.py
+models/industrial_agent/remediation/safety_guard.py
+
+AGENT CLASS SEARCH
+models/industrial_agent/agent.py:29:class IndustrialCognitiveAgent:
+models/industrial_agent/agent.py:347:            self.audit.log("FINDING", entry)
+models/industrial_agent/config.py:79:class AgentConfig:
+models/industrial_agent/integration.py:13:from .agent import IndustrialCognitiveAgent
+models/industrial_agent/integration.py:42:) -> IndustrialCognitiveAgent:
+models/industrial_agent/integration.py:49:    return IndustrialCognitiveAgent(
+models/industrial_agent/integration.py:56:def install_agent_routes(app: Any, db: Any, enable_modbus_adapter: bool = False) -> IndustrialCognitiveAgent:
+models/industrial_agent/remediation/agent.py:2:diagnosis = llm_reasoner.diagnose(...)
+models/industrial_agent/tests/test_smoke.py:22:    IndustrialCognitiveAgent,
+models/industrial_agent/tests/test_smoke.py:57:    agent = IndustrialCognitiveAgent(config=AgentConfig())
+models/industrial_agent/tests/test_smoke.py:89:    agent = IndustrialCognitiveAgent(
+models/industrial_agent/tests/test_smoke.py:123:    agent = IndustrialCognitiveAgent(
+models/industrial_agent/tests/test_smoke.py:158:    agent = IndustrialCognitiveAgent(
+models/industrial_agent/__init__.py:20:from .agent import IndustrialCognitiveAgent
+models/industrial_agent/__init__.py:31:    "IndustrialCognitiveAgent",
+backend/api.py:63:from industrial_agent import AgentConfig, IndustrialCognitiveAgent  # noqa: E402
+backend/api.py:288:agent: Optional[IndustrialCognitiveAgent] = None
+backend/api.py:332:            -> IndustrialCognitiveAgent
+backend/api.py:389:    agent = IndustrialCognitiveAgent(
+backend/api.py:463:def get_agent() -> IndustrialCognitiveAgent:
+
+REMEDIATION HOOK MARKER
+models/industrial_agent/agent.py:348:            # NEXUS_REMEDIATION_HOOK_V1
+
+BACKEND ROUTER MARKER
+backend/api.py:908:# NEXUS_REMEDIATION_ROUTER_V1
+
+MODBUS COMMAND PATH SEARCH
+models/industrial_agent/integration.py:15:from .modbus_adapter import ModbusSafetyAdapter
+models/industrial_agent/integration.py:41:    enable_modbus_adapter: bool = False,
+models/industrial_agent/integration.py:45:    if command_callback is None and enable_modbus_adapter:
+models/industrial_agent/integration.py:56:def install_agent_routes(app: Any, db: Any, enable_modbus_adapter: bool = False) -> IndustrialCognitiveAgent:
+models/industrial_agent/integration.py:60:    agent = create_default_agent(enable_modbus_adapter=enable_modbus_adapter)
+models/industrial_agent/modbus_adapter.py:41:        self.client = None
+models/industrial_agent/modbus_adapter.py:43:            self.client = ModbusTcpClient(host=host, port=port, timeout=3)
+models/industrial_agent/modbus_adapter.py:46:        if self.client is None:
+models/industrial_agent/modbus_adapter.py:49:            return bool(self.client.connect())
+models/industrial_agent/modbus_adapter.py:54:        if self.client is not None:
+models/industrial_agent/modbus_adapter.py:56:                self.client.close()
+models/industrial_agent/modbus_adapter.py:65:        if self.client is None:
+models/industrial_agent/modbus_adapter.py:68:        if not self.client.is_socket_open():
+models/industrial_agent/modbus_adapter.py:80:                result = self.client.write_coil(address=idx, value=False, slave=self.slave)
+models/industrial_agent/remediation/engine.py:62:        modbus_client: Any = None,
+models/industrial_agent/remediation/engine.py:68:        self.client = modbus_client
+models/industrial_agent/remediation/engine.py:94:        if self.client is None:
+models/industrial_agent/remediation/engine.py:98:            rr = self.client.read_holding_registers(addr, 1, slave=1)
+models/industrial_agent/remediation/engine.py:106:        if self.client is None:
+models/industrial_agent/remediation/engine.py:110:            wr = self.client.write_register(addr, int(value), slave=1)
+models/industrial_agent/remediation/engine.py:423:        if self.client is None:
+models/industrial_agent/remediation/engine.py:495:        if self.client is None:
+models/industrial_agent/remediation/engine.py:533:        if self.client is None:
+models/industrial_agent/remediation_hook.py:34:        getattr(agent, "modbus_client", None)
+models/industrial_agent/remediation_hook.py:36:        or getattr(agent, "modbus_adapter", None)
+models/industrial_agent/remediation_hook.py:42:        modbus_client=client,
+backend/api.py:257:            result = client.read_holding_registers(
+
+AUDIT LOGGER SEARCH
+models/ai_engine.py:13:import hashlib
+models/ai_engine.py:224:        self._audit_schema = self._load_prompt("AUDIT_LOGGING.md")
+models/ai_engine.py:227:        self.audit_log_path = Path(__file__).parent.parent / "data" / "audit_log.jsonl"
+models/ai_engine.py:228:        self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
+models/ai_engine.py:318:            self._log_audit("RULE_BASED_DIAGNOSIS", rule_result)
+models/ai_engine.py:379:                self._log_audit("AI_DIAGNOSIS", diagnosis)
+models/ai_engine.py:389:                self._log_audit("AI_ERROR", error_diagnosis)
+models/ai_engine.py:401:            self._log_audit("AI_ERROR", error_diagnosis)
+models/ai_engine.py:467:    def _log_audit(self, event: str, diagnosis: Dict):
+models/ai_engine.py:468:        """Log AI decision to audit log."""
+models/ai_engine.py:476:            "diagnosis_hash": hashlib.sha256(
+models/ai_engine.py:485:        with open(self.audit_log_path, "a", encoding="utf-8") as f:
+models/ai_engine.py:505:            pass  # fire-and-forget - audit logging must never be blocked
+models/industrial_agent/agent.py:13:from .audit import AuditLogger
+models/industrial_agent/agent.py:35:                -> action policy -> optional LLM explanation -> audit/dashboard
+models/industrial_agent/agent.py:43:        audit_path: Optional[str] = None,
+models/industrial_agent/agent.py:69:        self.audit = AuditLogger(audit_path)
+models/industrial_agent/agent.py:75:        self.audit.log("AGENT_START", {
+models/industrial_agent/agent.py:92:        self.audit.log("OPERATOR_PRESENCE_CHANGED", {
+models/industrial_agent/agent.py:217:        self.audit.log("AGENT_UPDATE", {
+models/industrial_agent/agent.py:347:            self.audit.log("FINDING", entry)
+models/industrial_agent/agent.py:354:                    self.audit.log("REMEDIATION_HOOK_ERROR", {"error": str(_nexus_rem_err)})
+models/industrial_agent/audit.py:2:Tamper-evident audit logger.
+models/industrial_agent/audit.py:7:import hashlib
+models/industrial_agent/audit.py:20:class AuditLogger:
+models/industrial_agent/audit.py:25:            path = project_root / "data" / "agent_audit.jsonl"
+models/industrial_agent/audit.py:31:        self.prev_hash = "GENESIS"
+models/industrial_agent/audit.py:43:                        if rec.get("hash"):
+models/industrial_agent/audit.py:44:                            self.prev_hash = rec["hash"]
+models/industrial_agent/audit.py:53:            "prev_hash": self.prev_hash,
+models/industrial_agent/audit.py:57:        record_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+models/industrial_agent/audit.py:58:        record["hash"] = record_hash
+models/industrial_agent/audit.py:59:        self.prev_hash = record_hash
+models/industrial_agent/audit.py:70:        # Fire-and-forget: audit JSONL write always completes first.
+models/industrial_agent/audit.py:95:                        source=payload.get("source", "agent_audit"),
+models/industrial_agent/audit.py:98:            pass  # fire-and-forget - audit logging must never be blocked
+models/industrial_agent/remediation/engine.py:63:        audit_logger: Any = None,
+models/industrial_agent/remediation/engine.py:69:        self.audit = audit_logger
+models/industrial_agent/remediation/engine.py:363:        self._audit_decision(rem_decision)
+models/industrial_agent/remediation/engine.py:376:            self._audit_execution(payload)
+models/industrial_agent/remediation/engine.py:418:        self._audit_execution(payload)
+models/industrial_agent/remediation/engine.py:491:            "note": "Operator acknowledgment request emitted to audit/HMI/dashboard layer.",
+models/industrial_agent/remediation/engine.py:574:    def _audit(self, event: str, payload: Dict[str, Any]) -> None:
+models/industrial_agent/remediation/engine.py:575:        if not self.audit:
+models/industrial_agent/remediation/engine.py:579:            self.audit.log(event, payload)
+models/industrial_agent/remediation/engine.py:587:            self.audit.log(event=event, payload=payload)
+models/industrial_agent/remediation/engine.py:591:    def _audit_decision(self, decision: RemediationDecision) -> None:
+models/industrial_agent/remediation/engine.py:592:        self._audit(
+models/industrial_agent/remediation/engine.py:607:    def _audit_execution(self, result: Dict[str, Any]) -> None:
+models/industrial_agent/remediation/engine.py:611:        self._audit(event, payload)
+models/industrial_agent/remediation_hook.py:38:    audit = getattr(agent, "audit", None) or getattr(agent, "audit_logger", None)
+models/industrial_agent/remediation_hook.py:43:        audit_logger=audit,
+models/industrial_agent/remediation_hook.py:136:            audit = getattr(agent, "audit", None) or getattr(agent, "audit_logger", None)
+models/industrial_agent/remediation_hook.py:137:            if audit is not None:
+models/industrial_agent/remediation_hook.py:139:                    audit.log("REMEDIATION_HOOK_ERROR", {"error": str(e)})
+models/industrial_agent/remediation_hook.py:141:                    audit.log(event="REMEDIATION_HOOK_ERROR", payload={"error": str(e)})
+backend/api.py:176:# ``record_remediation_event``) so the API exposes a rolling audit trail
+backend/api.py:333:            -> findings / recommendations / audit
+backend/remediation_api.py:14:AUDIT_AGENT = ROOT / "data" / "agent_audit.jsonl"
+backend/remediation_api.py:101:        return {"events": [], "reason": "agent audit missing"}
+
+OBSIDIAN BRIDGE SEARCH
+models/ai_engine.py:31:    from obsidian_bridge import log_incident
+models/ai_engine.py:489:        # Only high-severity events become vault documents, so the
+models/industrial_agent/audit.py:14:    from obsidian_bridge import log_incident
+models/industrial_agent/audit.py:68:        # Only high-severity events become vault documents, so the
+models/industrial_agent/remediation/agent.py:3:obsidian_bridge.write_incident(...)
+models/industrial_agent/remediation/engine.py:65:        obsidian_bridge: Any = None,
+models/industrial_agent/remediation/engine.py:70:        self.obsidian = obsidian_bridge
+models/industrial_agent/remediation/engine.py:419:        self._update_obsidian(decision, payload)
+models/industrial_agent/remediation/engine.py:559:    def _update_obsidian(self, decision: RemediationDecision, execution_result: Dict[str, Any]) -> None:
+models/industrial_agent/remediation/engine.py:560:        if not self.obsidian:
+models/industrial_agent/remediation/engine.py:564:            if hasattr(self.obsidian, "append_remediation_section"):
+models/industrial_agent/remediation/engine.py:565:                self.obsidian.append_remediation_section(
+models/industrial_agent/remediation_hook.py:39:    obsidian = getattr(agent, "obsidian_bridge", None) or getattr(agent, "vault_bridge", None)
+models/industrial_agent/remediation_hook.py:44:        obsidian_bridge=obsidian,
+obsidian_bridge.py:5:local Obsidian vault, giving operators a human-readable, linkable,
+obsidian_bridge.py:13:  2. ``append_remediation_section(...)``
+obsidian_bridge.py:21:- rotation: Incidents/ is capped, oldest files archive automatically
+obsidian_bridge.py:35:VAULT_DIR = Path(__file__).resolve().parent / "data" / "scada_vault"
+obsidian_bridge.py:36:INCIDENTS_DIR = VAULT_DIR / "Incidents"
+obsidian_bridge.py:84:    Write one incident report into the vault. Returns the file path,
+obsidian_bridge.py:296:def append_remediation_section(
+obsidian_bridge.py:376:    ok = append_remediation_section("STP-01", decision, execution_result)
+obsidian_bridge.py:380:    ok2 = append_remediation_section("STP-01", decision, execution_result)
+
+POLICY FILE
+-rw-r--r-- 1 Reza 197121 1371 Sep 30 16:10 configs/remediation_policy.json
+
+UNIT TEST FILE
+-rw-r--r-- 1 Reza 197121 3271 Sep 30 16:10 tests/unit/test_remediation_engine.py
+
+LIVE PROBE FILE
+-rwxr-xr-x 1 Reza 197121 8619 Sep 30 16:10 scripts/autonomous_remediation_probe.py

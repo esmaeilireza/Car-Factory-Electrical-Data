@@ -5,27 +5,54 @@ Every high-severity diagnosis can be persisted as a markdown file in a
 local Obsidian vault, giving operators a human-readable, linkable,
 fully-offline incident history (IEC 62443-friendly: no cloud, no DB).
 
+Two responsibilities:
+
+  1. ``log_incident(...)``
+       Write a *new* incident note when the agent produces a finding.
+
+  2. ``append_remediation_section(...)``
+       When the remediation engine later acts on that finding, append a
+       structured "Autonomous Remediation" section to the *same* note so
+       the file becomes a complete outcome record (diagnosis -> decision
+       -> execution result).
+
 Design rules:
 - fire-and-forget: any failure inside must NEVER propagate to the agent
 - rotation: Incidents/ is capped, oldest files archive automatically
+- idempotent: appending the same remediation twice does not duplicate
 - no dependencies beyond the standard library
 """
 
+from __future__ import annotations
+
+import json
 import shutil
-import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 
 VAULT_DIR = Path(__file__).resolve().parent / "data" / "scada_vault"
 INCIDENTS_DIR = VAULT_DIR / "Incidents"
 ARCHIVE_DIR = INCIDENTS_DIR / "archive"
 ROTATION_LIMIT = 500
 
+# How many files to scan when falling back to content search
+# (filename glob is the primary lookup path; this is a bounded fallback).
+_CONTENT_SCAN_LIMIT = 50
+
+# Marker used to prevent duplicate remediation sections.
+_REMEDIATION_HEADER = "## Autonomous Remediation"
+
 # Known equipment ids. SYSTEM-level findings carry no machine attribution,
 # so the diagnosis text is mined for these ids to keep the knowledge graph
 # connected (every incident ends up with at least one resolvable link).
 KNOWN_EQ_IDS = ["STP-01", "WLD-01", "PNT-01", "ASM-01", "UTI-01", "UTI-02"]
 
+
+# ---------------------------------------------------------------------------
+# Rotation
+# ---------------------------------------------------------------------------
 
 def _rotate_if_needed() -> None:
     """Move oldest incident files to archive when the cap is exceeded."""
@@ -40,6 +67,10 @@ def _rotate_if_needed() -> None:
     for p in incidents[:overflow]:
         shutil.move(str(p), str(ARCHIVE_DIR / p.name))
 
+
+# ---------------------------------------------------------------------------
+# Incident creation (unchanged behavior)
+# ---------------------------------------------------------------------------
 
 def log_incident(
     equipment_ids: list,
@@ -66,9 +97,13 @@ def log_incident(
         if not real_ids:
             haystack = f"{diagnosis} {recommended_action}"
             referenced = [eq for eq in KNOWN_EQ_IDS if eq in haystack]
-        standard_link = f"[[ANSI-{fault_type}]]" if fault_type.startswith("ANSI-") else fault_type
 
-        filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{equipment_ids[0] if equipment_ids else 'SYSTEM'}.md"
+        standard_link = (
+            f"[[ANSI-{fault_type}]]" if fault_type.startswith("ANSI-") else fault_type
+        )
+
+        first_id = equipment_ids[0] if equipment_ids else "SYSTEM"
+        filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{first_id}.md"
         filepath = INCIDENTS_DIR / filename
 
         content = f"""---
@@ -112,11 +147,235 @@ source: {source}
         return ""
 
 
+# ---------------------------------------------------------------------------
+# Incident lookup (used by remediation append)
+# ---------------------------------------------------------------------------
+
+def find_latest_incident_for(eq_id: str) -> Optional[Path]:
+    """
+    Return the most recent incident file associated with ``eq_id``.
+
+    Lookup strategy:
+      1. Filename glob ``*_{eq_id}.md`` -- matches the naming convention
+         produced by :func:`log_incident`.
+      2. Bounded content scan of the N most recent files -- catches
+         SYSTEM-tagged incidents whose body references ``eq_id``.
+
+    Returns ``None`` if nothing is found or if any error occurs.
+    """
+    try:
+        if not eq_id or not INCIDENTS_DIR.exists():
+            return None
+
+        # Primary: filename match.
+        by_name = [p for p in INCIDENTS_DIR.glob(f"*_{eq_id}.md") if p.is_file()]
+        if by_name:
+            by_name.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            return by_name[0]
+
+        # Fallback: bounded content scan of the newest files.
+        all_md = [p for p in INCIDENTS_DIR.glob("*.md") if p.is_file()]
+        if not all_md:
+            return None
+        all_md.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+        for p in all_md[:_CONTENT_SCAN_LIMIT]:
+            try:
+                text = p.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if f"[[{eq_id}]]" in text or eq_id in p.name:
+                return p
+
+        return None
+
+    except Exception as e:
+        print(f"[OBSIDIAN] find_latest_incident_for failed (non-fatal): {e}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Remediation section formatting
+# ---------------------------------------------------------------------------
+
+def _approved_action_types(decision: Dict[str, Any]) -> List[str]:
+    """Extract approved-action type names from a decision dict."""
+    raw = decision.get("approved_actions") or []
+    names: List[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            name = item.get("type") or item.get("action") or item.get("name")
+        else:
+            name = str(item)
+        if name:
+            names.append(str(name))
+    return names
+
+
+def _rejected_action_types(decision: Dict[str, Any]) -> List[str]:
+    """Extract rejected-action type names from a decision dict."""
+    raw = decision.get("rejected_actions") or []
+    names: List[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            name = item.get("action_type") or item.get("type") or item.get("action")
+        else:
+            name = str(item)
+        if name:
+            names.append(str(name))
+    return names
+
+
+def _format_remediation_section(
+    decision: Dict[str, Any],
+    execution_result: Dict[str, Any],
+) -> str:
+    """
+    Build the markdown section that gets appended to the incident note.
+
+    Both a compact bullet summary and a raw JSON block are emitted so
+    the note stays human-readable while remaining machine-parseable.
+    """
+    approved = _approved_action_types(decision)
+    rejected = _rejected_action_types(decision)
+
+    ansi_code = decision.get("ansi_code", "unknown")
+    severity = decision.get("severity", "unknown")
+    policy_version = decision.get("policy_version", "unknown")
+    mode = execution_result.get("mode", "unknown")
+    executed = execution_result.get("executed", False)
+
+    approved_str = ", ".join(f"`{a}`" for a in approved) if approved else "none"
+    rejected_str = ", ".join(f"`{r}`" for r in rejected) if rejected else "none"
+
+    lines: List[str] = []
+    lines.append("")
+    lines.append(_REMEDIATION_HEADER)
+    lines.append("")
+    lines.append(f"- ANSI code: `{ansi_code}`")
+    lines.append(f"- Severity: `{severity}`")
+    lines.append(f"- Policy version: `{policy_version}`")
+    lines.append(f"- Mode: `{mode}`")
+    lines.append(f"- Approved actions: {approved_str}")
+    lines.append(f"- Rejected actions: {rejected_str}")
+    lines.append(f"- Executed: `{bool(executed)}`")
+
+    # Human-friendly bullet list of the top-level execution fields.
+    results = execution_result.get("results") or []
+    if results:
+        lines.append("")
+        lines.append("### Execution Detail")
+        lines.append("")
+        for entry in results:
+            if isinstance(entry, dict):
+                # Render each key=value pair as its own bullet for clarity.
+                for k, v in entry.items():
+                    lines.append(f"- {k}: {v}")
+            else:
+                lines.append(f"- {entry}")
+
+    # Machine-parseable full JSON dump.
+    lines.append("")
+    lines.append("### Raw Execution Result")
+    lines.append("")
+    lines.append("```json")
+    try:
+        lines.append(json.dumps(execution_result, indent=2, default=str))
+    except Exception:
+        lines.append("// <unserializable execution_result>")
+    lines.append("```")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Remediation append (public entry point)
+# ---------------------------------------------------------------------------
+
+def append_remediation_section(
+    eq_id: str,
+    decision: Dict[str, Any],
+    execution_result: Dict[str, Any],
+) -> bool:
+    """
+    Append a structured remediation outcome to the latest incident for
+    ``eq_id``.
+
+    Returns:
+        True  - section written (or already present).
+        False - no incident found, or any I/O error occurred.
+
+    Never raises. Safe to call from any thread.
+    """
+    try:
+        if not eq_id:
+            return False
+
+        incident_path = find_latest_incident_for(eq_id)
+        if incident_path is None:
+            print(f"[OBSIDIAN] no incident found for {eq_id}; remediation not linked")
+            return False
+
+        # Idempotency: skip if a remediation section is already present.
+        try:
+            existing = incident_path.read_text(encoding="utf-8")
+            if _REMEDIATION_HEADER in existing:
+                return True
+        except Exception:
+            # If we cannot read it, attempt the append anyway.
+            pass
+
+        decision = decision or {}
+        execution_result = execution_result or {}
+
+        section = _format_remediation_section(decision, execution_result)
+
+        with incident_path.open("a", encoding="utf-8") as f:
+            f.write(section)
+
+        print(f"[OBSIDIAN] remediation appended to {incident_path.name}")
+        return True
+
+    except Exception as e:  # fire-and-forget: swallow everything
+        print(f"[OBSIDIAN] remediation append skipped (non-fatal): {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Smoke test
+# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
+    # 1. Create an incident as the agent would.
     path = log_incident(
-        ["STP-01"], "ANSI-38",
+        ["STP-01"],
+        "ANSI-49",
         "Theta exceeded 100% for 5 consecutive polls - sustained thermal overload.",
-        "inspect_process",
+        "reduce_load",
         severity="HIGH",
     )
     print(f"[TEST] incident written to: {path}")
+
+    # 2. Append the remediation outcome as the engine would.
+    decision = {
+        "ansi_code": "49",
+        "severity": "HIGH",
+        "policy_version": "v1.2.3",
+        "approved_actions": [{"type": "REDUCE_LOAD"}],
+        "rejected_actions": [{"action_type": "SAFE_STOP_NON_CRITICAL"}],
+    }
+    execution_result = {
+        "mode": "limited_autonomous",
+        "executed": True,
+        "results": [
+            {"action": "REDUCE_LOAD", "old_load": 100, "new_load": 90},
+        ],
+    }
+
+    ok = append_remediation_section("STP-01", decision, execution_result)
+    print(f"[TEST] remediation append ok={ok}")
+
+    # 3. Idempotency check: calling again should be a no-op.
+    ok2 = append_remediation_section("STP-01", decision, execution_result)
+    print(f"[TEST] second append (should be True, no duplication) ok={ok2}")

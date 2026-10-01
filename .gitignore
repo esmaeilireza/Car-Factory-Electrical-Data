@@ -1,58 +1,71 @@
-# Python
+# ============================================================
+#  NEXUS SCADA — .gitignore
+# ============================================================
+
+# ---------- Python ----------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 
-# Virtual environments
+# ---------- Virtual environments ----------
 venv/
 .venv/
 
-# Old project (unrelated)
+# ---------- Old / unrelated project ----------
 car-factory-electrical-dashboard/
 
-# IDE
+# ---------- IDE ----------
 .vscode/
 .idea/
 
-# OS
+# ---------- OS ----------
 .DS_Store
 Thumbs.db
 
-# Streamlit
+# ---------- Streamlit ----------
 .streamlit/
 
-# Backup files
+# ---------- Backup / editor temp files (tripwire support) ----------
 *.backup
 *.bak
+*.bak-*
 *.py.bak
 
-# Large model / wheel artifacts (keep outside git)
+# ---------- Local backup trees (never commit history copies) ----------
+docs/backups/
+backups/
+_heal_all_backups/
+
+# ---------- Runtime logs ----------
+logs/
+
+# ---------- Large binary artifacts (kept outside git) ----------
 *.gguf
 *.whl
+models/*.bin
+models/*.safetensors
 
-# SQLite runtime artifacts
+# ---------- SQLite runtime artifacts ----------
 *.db
 *.db-journal
 *.sqlite3
-
-# Runtime audit logs
-*.jsonl
-data/scada_vault/Incidents/
-*.db
-*.csv
-models/*.bin
-models/*.safetensors
-models/*.gguf
 data/*.db-wal
 data/*.db-shm
+
+# ---------- Runtime audit / telemetry ----------
+*.jsonl
 data/agent_audit.jsonl
-data/scada_vault/Incidents/
-*.bak-*
 
-*D:\Machine learning\data analyze Projects\phase 3 car-factory-electrical-data\tools*
-# evidence artifacts are portfolio proof - keep tracked
-!docs/evidence/*.jsonl
+# ---------- Generated data ----------
+*.csv
 
-# Obsidian personal workspace state - never track
+# ---------- Obsidian personal workspace state ----------
 data/scada_vault/.obsidian/
+data/scada_vault/Incidents/
+
+# ---------- Tooling (uncomment the next line if /tools/ should stay local) ----------
+# /tools/
+
+# ---------- Evidence artifacts: portfolio proof, KEEP TRACKED ----------
+!docs/evidence/*.jsonl

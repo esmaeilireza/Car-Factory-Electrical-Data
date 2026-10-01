@@ -4,6 +4,16 @@ Optimized version with Industrial Cognitive Agent integration.
 
 This file is the project API backend.
 Do not confuse it with the installed requests library file requests/api.py.
+
+Remediation control layer
+-------------------------
+* Modes: ``advisory`` (default) and ``limited_autonomous``.
+  The default is intentionally the *safest* one: the system only
+  recommends; a human decides.
+* ``limited_autonomous`` may be enabled by an operator for live
+  verification, but never silently and never without auth.
+* The mode set is enforced at the API boundary: unknown modes are
+  rejected before reaching the engine.
 """
 
 from __future__ import annotations
@@ -12,12 +22,14 @@ import asyncio
 import os
 import sys
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 from fastapi import (
+    APIRouter,
     Depends,
     FastAPI,
     Header,
@@ -28,6 +40,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 try:
     from pymodbus.client import ModbusTcpClient
@@ -53,6 +66,13 @@ try:
     from ai_engine import get_ai_engine
 except Exception:
     get_ai_engine = None
+
+# Remediation policy loader is optional. If the module is absent, the
+# remediation endpoints still respond -- they just report "unavailable".
+try:
+    from industrial_agent.remediation import load_policy  # type: ignore
+except Exception:
+    load_policy = None
 
 
 # -----------------------------------------------------------------------------
@@ -94,6 +114,24 @@ SYS_STATUS_ANY_TRIP_BIT = 1
 
 
 # -----------------------------------------------------------------------------
+# Remediation configuration
+# -----------------------------------------------------------------------------
+
+# The default mode is deliberately the *safest* one. An operator (or the
+# live verifier) must explicitly promote the system to limited_autonomous
+# through POST /api/agent/remediation/mode.
+DEFAULT_REMEDIATION_MODE = "advisory"
+VALID_REMEDIATION_MODES = frozenset({"advisory", "limited_autonomous"})
+
+REMEDIATION_POLICY_PATH = os.environ.get(
+    "NEXUS_REMEDIATION_POLICY_PATH",
+    str(PROJECT_ROOT / "configs" / "remediation_policy.json"),
+)
+
+REMEDIATION_HISTORY_MAX = 500
+
+
+# -----------------------------------------------------------------------------
 # Thread-safe TTL cache
 # -----------------------------------------------------------------------------
 
@@ -128,6 +166,30 @@ class TTLCache:
 
 
 equipment_cache = TTLCache(ttl=CACHE_TTL_SECONDS)
+
+
+# -----------------------------------------------------------------------------
+# Bounded in-memory remediation history
+# -----------------------------------------------------------------------------
+#
+# The remediation engine can append entries here (via
+# ``record_remediation_event``) so the API exposes a rolling audit trail
+# even before a database-backed history is wired in.
+#
+_remediation_history: Deque[Dict[str, Any]] = deque(maxlen=REMEDIATION_HISTORY_MAX)
+
+
+def record_remediation_event(event: Dict[str, Any]) -> None:
+    """
+    Append an entry to the bounded in-memory remediation history.
+
+    Safe to call from any thread. The deque itself enforces the upper
+    bound, so callers do not need to manage size.
+    """
+    if not isinstance(event, dict):
+        return
+    entry = {"timestamp": time.time(), **event}
+    _remediation_history.append(entry)
 
 
 # -----------------------------------------------------------------------------
@@ -280,9 +342,10 @@ async def agent_background_loop() -> None:
                     stats_cycle = getattr(agent_background_loop, "cycle", 0) + 1
                     agent_background_loop.cycle = stats_cycle
 
-                    # Defensive: immune to future agent refactors that may rename/remove _latest_stats
+                    # Defensive: immune to future agent refactors that may
+                    # rename/remove _latest_stats
                     stats_payload = getattr(agent, "_latest_stats", None) or {}
-                    # Every 5 cycles (~5 seconds), fetch 24-hour statistics from SQLite
+                    # Every 5 cycles (~5 seconds), fetch 24-hour statistics
                     if stats_cycle % 5 == 1 or not stats_payload:
                         stats_payload = {
                             eq_id: await asyncio.to_thread(
@@ -314,6 +377,7 @@ async def lifespan(app: FastAPI):
 
     print("[API] NEXUS SCADA Backend starting...")
     print(f"[API] Auth mode: {'ENABLED' if AUTH_ENABLED else 'DISABLED (dev mode)'}")
+    print(f"[API] Remediation default mode: {DEFAULT_REMEDIATION_MODE}")
 
     try:
         db.cleanup_old_data(days=30)
@@ -364,7 +428,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="NEXUS SCADA API",
     description="Production Backend - Phase 3 with Industrial Cognitive Agent",
-    version="3.1.0",
+    version="3.2.0",
     lifespan=lifespan,
 )
 
@@ -403,6 +467,19 @@ def get_agent() -> IndustrialCognitiveAgent:
     return agent_obj
 
 
+def get_remediation_engine() -> Optional[Any]:
+    """
+    Return the agent's remediation engine if it has been attached.
+
+    Remediation is an optional capability. When the engine is missing
+    the API reports ``available: false`` instead of failing.
+    """
+    agent_obj = getattr(app.state, "agent", None)
+    if agent_obj is None:
+        return None
+    return getattr(agent_obj, "remediation_engine", None)
+
+
 # -----------------------------------------------------------------------------
 # Public endpoints
 # -----------------------------------------------------------------------------
@@ -411,9 +488,10 @@ def get_agent() -> IndustrialCognitiveAgent:
 async def root():
     return {
         "name": "NEXUS SCADA API",
-        "version": "3.1.0",
+        "version": "3.2.0",
         "status": "running",
         "auth_enabled": AUTH_ENABLED,
+        "remediation_default_mode": DEFAULT_REMEDIATION_MODE,
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -430,6 +508,7 @@ async def health_check():
         "operating_mode": agent_obj.mode.value if agent_obj is not None else None,
         "llm_available": agent_obj.llm_reasoner.available() if agent_obj is not None else False,
         "system_status": getattr(app.state, "system_status", system_status),
+        "remediation_available": get_remediation_engine() is not None,
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -625,6 +704,195 @@ async def set_system_status(payload: Dict[str, Any]):
 
 
 # -----------------------------------------------------------------------------
+# Remediation control endpoints
+# -----------------------------------------------------------------------------
+#
+# Safety contract
+# ---------------
+# * Default mode is ``advisory`` (recommend only).
+# * ``limited_autonomous`` may be enabled by an authenticated operator
+#   for live verification, but the engine is still bound by its own
+#   policy (allowed/forbidden actions).
+# * Unknown modes are rejected at the API boundary -- the engine never
+#   sees them.
+
+remediation_router = APIRouter(
+    prefix="/api/agent/remediation",
+    tags=["remediation"],
+)
+
+
+class RemediationModeRequest(BaseModel):
+    mode: str
+
+
+@remediation_router.get("/status")
+async def remediation_status():
+    """
+    Report the current remediation mode and the policy in force.
+
+    Always returns 200. When the engine is not initialized, reports
+    ``available: false`` with the default mode so clients see a
+    consistent shape.
+    """
+    engine = get_remediation_engine()
+
+    if engine is None:
+        return {
+            "available": False,
+            "mode": DEFAULT_REMEDIATION_MODE,
+            "policy_version": None,
+            "allowed_actions": [],
+            "forbidden_actions": [],
+            "reason": "Remediation engine not initialized.",
+        }
+
+    policy = getattr(engine, "policy", None)
+    return {
+        "available": True,
+        "mode": getattr(policy, "mode", DEFAULT_REMEDIATION_MODE),
+        "policy_version": getattr(policy, "version", None),
+        "allowed_actions": list(getattr(policy, "allowed_actions", {}).keys()),
+        "forbidden_actions": list(getattr(policy, "forbidden_actions", [])),
+    }
+
+
+@remediation_router.post("/mode", dependencies=[Depends(verify_api_key)])
+async def set_remediation_mode(req: RemediationModeRequest):
+    """
+    Change the remediation mode.
+
+    Only modes in ``VALID_REMEDIATION_MODES`` are accepted. This is
+    enforced *before* the request reaches the engine, so a typo or an
+    unexpected value cannot weaken the safety layer.
+    """
+    requested = (req.mode or "").strip().lower()
+
+    if requested not in VALID_REMEDIATION_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported remediation mode '{req.mode}'. "
+                f"Allowed: {sorted(VALID_REMEDIATION_MODES)}"
+            ),
+        )
+
+    engine = get_remediation_engine()
+    if engine is None:
+        return {
+            "ok": False,
+            "mode": DEFAULT_REMEDIATION_MODE,
+            "error": "Remediation engine not initialized.",
+        }
+
+    ok = bool(engine.set_mode(requested))
+
+    if ok:
+        record_remediation_event(
+            {
+                "event": "mode_change",
+                "requested_mode": requested,
+                "applied_mode": getattr(
+                    getattr(engine, "policy", None), "mode", requested
+                ),
+            }
+        )
+
+    return {
+        "ok": ok,
+        "mode": getattr(getattr(engine, "policy", None), "mode", requested),
+        "error": None if ok else f"Engine rejected mode: {requested}",
+    }
+
+
+@remediation_router.get("/policy")
+async def remediation_policy():
+    """
+    Return the current remediation policy document.
+
+    Prefers the live engine's policy; falls back to loading it from
+    disk. Returns an explicit ``available: false`` payload when neither
+    is possible.
+    """
+    engine = get_remediation_engine()
+    policy_obj = getattr(engine, "policy", None) if engine is not None else None
+
+    if policy_obj is not None:
+        raw = getattr(policy_obj, "raw", None)
+        if raw is not None:
+            return {"available": True, "source": "engine", "policy": raw}
+
+    if load_policy is not None:
+        try:
+            loaded = load_policy(REMEDIATION_POLICY_PATH)
+            raw = getattr(loaded, "raw", None) or loaded
+            return {"available": True, "source": "file", "policy": raw}
+        except Exception as e:
+            return {
+                "available": False,
+                "source": "file",
+                "error": f"Failed to load policy: {type(e).__name__}: {e}",
+            }
+
+    return {
+        "available": False,
+        "source": "none",
+        "error": "Remediation module is not importable and no engine is attached.",
+    }
+
+
+@remediation_router.get("/history")
+async def remediation_history(limit: int = 100):
+    """
+    Return recent remediation events.
+
+    Order of preference:
+      1. Engine-provided history (``engine.get_history()`` or
+         ``engine.history``), which may be persisted.
+      2. In-memory ring populated via ``record_remediation_event``.
+
+    ``limit`` is clamped to ``[1, REMEDIATION_HISTORY_MAX]``.
+    """
+    limit = max(1, min(int(limit), REMEDIATION_HISTORY_MAX))
+
+    engine = get_remediation_engine()
+
+    if engine is not None:
+        if hasattr(engine, "get_history"):
+            try:
+                entries = list(engine.get_history(limit=limit))
+                return {
+                    "source": "engine",
+                    "count": len(entries),
+                    "entries": entries,
+                }
+            except Exception as e:
+                print(f"[REMEDIATION] engine.get_history failed: {e}")
+
+        engine_history = getattr(engine, "history", None)
+        if engine_history is not None:
+            try:
+                entries = list(engine_history)[-limit:]
+                return {
+                    "source": "engine",
+                    "count": len(entries),
+                    "entries": entries,
+                }
+            except Exception as e:
+                print(f"[REMEDIATION] engine.history access failed: {e}")
+
+    entries = list(_remediation_history)[-limit:]
+    return {
+        "source": "in_memory",
+        "count": len(entries),
+        "entries": entries,
+    }
+
+
+app.include_router(remediation_router)
+
+
+# -----------------------------------------------------------------------------
 # Run server
 # -----------------------------------------------------------------------------
 
@@ -637,3 +905,12 @@ if __name__ == "__main__":
         port=8000,
         log_level="info",
     )
+# NEXUS_REMEDIATION_ROUTER_V1
+try:
+    from .remediation_api import router as _nexus_remediation_router
+    try:
+        app.include_router(_nexus_remediation_router)
+    except NameError:
+        application.include_router(_nexus_remediation_router)
+except Exception:
+    pass

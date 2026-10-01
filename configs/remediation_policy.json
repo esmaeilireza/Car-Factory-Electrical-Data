@@ -1,0 +1,84 @@
+{
+  "version": "1.0.0",
+  "mode": "advisory",
+  "supported_modes": [
+    "advisory",
+    "limited_autonomous"
+  ],
+  "global_limits": {
+    "max_actions_per_minute": 2,
+    "cooldown_seconds": 30,
+    "max_consecutive_same_action": 3,
+    "require_operator_ack_for_estop": true
+  },
+  "allowed_actions": {
+    "REDUCE_LOAD": {
+      "enabled": true,
+      "max_step_percent": 10,
+      "min_load_percent": 20,
+      "max_total_reduction_percent": 40,
+      "applicable_ansi": [
+        "49",
+        "51",
+        "38",
+        "59"
+      ]
+    },
+    "HOLD_STATE": {
+      "enabled": true,
+      "applicable_ansi": [
+        "27",
+        "37",
+        "46"
+      ]
+    },
+    "ISOLATE_NON_CRITICAL": {
+      "enabled": true,
+      "equipment_classes": [
+        "UTI-01",
+        "UTI-02"
+      ],
+      "applicable_ansi": [
+        "49",
+        "38",
+        "51"
+      ]
+    },
+    "REQUEST_OPERATOR_ACK": {
+      "enabled": true,
+      "applicable_ansi": [
+        "27",
+        "50",
+        "59",
+        "38",
+        "49"
+      ]
+    },
+    "SAFE_STOP_NON_CRITICAL": {
+      "enabled": true,
+      "equipment_classes": [
+        "UTI-01",
+        "UTI-02"
+      ],
+      "applicable_ansi": [
+        "50",
+        "51",
+        "38"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    "RESET_GLOBAL_ESTOP",
+    "CLEAR_GLOBAL_ESTOP_LATCH",
+    "INCREASE_LOAD",
+    "BYPASS_ANSI_TRIP",
+    "WRITE_SAFETY_COILS",
+    "START_LOCKED_EQUIPMENT",
+    "DISABLE_PROTECTION_RELAYS"
+  ],
+  "escalation": {
+    "after_repeated_trips": 3,
+    "action": "REQUEST_OPERATOR_ACK",
+    "severity": "CRITICAL"
+  }
+}

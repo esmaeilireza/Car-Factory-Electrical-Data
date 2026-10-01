@@ -8,6 +8,9 @@ FIXES APPLIED:
 - Thread-safe state mutations via internal locking
 - Clean separation between warnings (alarms) and faults (trips)
 - Idempotent emergency_stop() prevents console flood when E-STOP is latched
+- inject_fault() now drives the physical model (θ, I, V, T) in addition to
+  setting the trip bit, and Protection.force_trip() is sticky so the bit
+  survives every step() tick until try_reset() is called.
 """
 
 import math
@@ -85,10 +88,14 @@ class ElectricalData:
 class Protection:
     """
     ANSI protection relay simulation.
-    
+
     Trip and alarm words are SEPARATE bitmasks:
       trip_word  -> Faults that cause lockout (bits 0-5)
       alarm_word -> Warnings only, no lockout (bits 6-7)
+
+    Injected faults are "sticky": force_trip() records the bit in
+    _forced_trip_bits, which step() ORs back into trip_word every cycle.
+    A human operator RESET (try_reset) is the only thing that clears them.
     """
 
     # Trip bits (cause lockout)
@@ -117,6 +124,9 @@ class Protection:
         self.t_uv = 0.0
         self.trip_count = 0
         self.last_trip_time = 0.0
+
+        # Sticky fault bits injected via force_trip(); cleared on try_reset().
+        self._forced_trip_bits = 0
 
     def step(self, I: float, V: float, temp: float, running: bool, dt: float):
         """Execute one protection cycle. Updates trip/alarm words independently."""
@@ -180,6 +190,9 @@ class Protection:
         if running and 0 < I < 0.3 * self.I_n:
             alarms |= self.ALARM_LOSS_OF_LOAD
 
+        # Sticky injected faults survive every tick until try_reset().
+        trips |= self._forced_trip_bits
+
         self.trip_word = trips
         self.alarm_word = alarms
 
@@ -202,10 +215,18 @@ class Protection:
         self.t_oc = 0.0
         self.t_uv = 0.0
         self.theta = 0.0
+        # Release injected faults on explicit operator reset.
+        self._forced_trip_bits = 0
         return True
 
     def force_trip(self, ansi_bit: int):
-        """Force a specific ANSI trip for testing."""
+        """
+        Force a specific ANSI trip for testing.
+
+        The bit is recorded as sticky so step() cannot overwrite it; it
+        survives until an operator RESET clears the relay via try_reset().
+        """
+        self._forced_trip_bits |= (1 << ansi_bit)
         self.trip_word |= (1 << ansi_bit)
         if not self.latched:
             self.latched = True
@@ -220,10 +241,21 @@ class Protection:
 class Equipment:
     """
     Thread-safe factory equipment simulator.
-    
+
     All public methods acquire an internal lock to prevent race conditions
     between the simulation thread and external callers (Modbus server, UI).
     """
+
+    # Maps the public fault_type strings to ANSI trip bits in Protection.
+    # (Kept in sync with Protection.TRIP_* — do not renumber.)
+    _FAULT_BIT_MAP = {
+        "thermal":   0,   # ANSI-49
+        "inst_oc":   1,   # ANSI-50
+        "time_oc":   2,   # ANSI-51
+        "undervolt": 3,   # ANSI-27
+        "overvolt":  4,   # ANSI-59
+        "overtemp":  5,   # ANSI-38
+    }
 
     def __init__(self, config: EquipmentConfig):
         self.config = config
@@ -238,6 +270,12 @@ class Equipment:
         self._base_voltage = 380.0
         self._last_update_time = time.time()
         self._heartbeat = 0
+
+        # Optional operator load setpoint (HR[160+i]).
+        # 0 = autonomous, nonzero = latched target percentage.
+        self.load_setpoint: float = 0.0
+        self._sp_progress: Optional[float] = None
+        self._sp_was_active: bool = False
 
         # Thread safety: protects ALL mutable state
         self._lock = threading.Lock()
@@ -306,17 +344,69 @@ class Equipment:
             self._load_factor = max(0.0, min(1.0, load_percent / 100.0))
 
     def inject_fault(self, fault_type: str) -> bool:
-        """Inject a test fault. Supported: thermal, inst_oc, time_oc, undervolt, overvolt, overtemp."""
-        fault_map = {
-            "thermal": 0, "inst_oc": 1, "time_oc": 2,
-            "undervolt": 3, "overvolt": 4, "overtemp": 5,
-        }
+        """
+        Inject a test fault.
+
+        Drives BOTH the deterministic trip relay (via force_trip, which is
+        sticky) AND the physical model (temperature / current / voltage /
+        thermal capacity), so any downstream consumer — rule engine, HMI,
+        dashboard, audit log — sees a coherent fault condition rather than
+        a single bit that step() would otherwise wipe on the next tick.
+
+        Supported: thermal, inst_oc, time_oc, undervolt, overvolt, overtemp.
+        """
         with self._lock:
-            if fault_type in fault_map:
-                self.protection.force_trip(fault_map[fault_type])
-                print(f"[FAULT] ⚠️  {self.config.equipment_id} Injected: {fault_type}")
-                return True
-            return False
+            bit = self._FAULT_BIT_MAP.get(fault_type)
+            if bit is None:
+                return False
+
+            V_n = PROT_CONFIG["V_n"]
+            I_n = self.config.base_current
+
+            # 1) Physical model must agree with the trip.
+            if fault_type == "thermal":
+                # ANSI-49: θ > 1.0, hot machine, mild current elevation.
+                self.protection.theta = max(self.protection.theta, 1.05)
+                self.data.temperature = max(self.data.temperature, 96.0)
+                self.data.current = max(self.data.current, I_n * 1.30)
+
+            elif fault_type == "inst_oc":
+                # ANSI-50: massive current spike.
+                self.data.current = max(self.data.current, I_n * 3.00)
+
+            elif fault_type == "time_oc":
+                # ANSI-51: moderate sustained overcurrent.
+                self.data.current = max(self.data.current, I_n * 1.50)
+
+            elif fault_type == "undervolt":
+                # ANSI-27: voltage collapse below 85% V_n.
+                self.data.voltage = min(self.data.voltage, V_n * 0.80)
+
+            elif fault_type == "overvolt":
+                # ANSI-59: voltage rise above 110% V_n.
+                self.data.voltage = max(self.data.voltage, V_n * 1.15)
+
+            elif fault_type == "overtemp":
+                # ANSI-38: winding/ambient temperature above trip limit.
+                self.data.temperature = max(self.data.temperature, 100.0)
+
+            # 2) Force the trip bit + latch (sticky across step()).
+            self.protection.force_trip(bit)
+
+            # 3) Match the state machine to the fault, so UI/HMI is consistent
+            #    and further starts are inhibited until a RESET.
+            self._motor_state = MotorState.FAULT_LOCKOUT
+            self._start_pending_until = 0.0
+
+            print(
+                f"[FAULT] ⚠️  {self.config.equipment_id} Injected: {fault_type} "
+                f"-> trip_word=0x{self.protection.trip_word:02x} "
+                f"θ={self.protection.theta:.2f} "
+                f"T={self.data.temperature:.1f}°C "
+                f"I={self.data.current:.1f}A "
+                f"V={self.data.voltage:.1f}V"
+            )
+            return True
 
     # ---- Simulation Update (Thread-Safe) ----
 
@@ -417,13 +507,6 @@ class Equipment:
             # across stop/restart; write 0 to release.
             _sp = getattr(self, "load_setpoint", 0.0)
             if _sp > 0 and is_running:
-                # Drive the load FACTOR: current, PF and the thermal target
-                # all derive from _load_factor, so the whole instrument
-                # cluster follows the operator setpoint. Progress state is
-                # persistent; re-arms from the actual value after any
-                # inactive period so restarts ramp cleanly. Current/PF lag
-                # load by one tick because they are computed earlier in
-                # this method.
                 prog = getattr(self, "_sp_progress", None)
                 if prog is None or not getattr(self, "_sp_was_active", False):
                     prog = self._load_factor * 100.0
@@ -460,13 +543,13 @@ class Equipment:
           [5]  Power Factor   (pf × 100)
           [6]  Frequency      (Hz × 10)
           [7]  Energy         (kWh × 100)
-          [8]  Motor State    (0=STOP, 1=RUN, 2=PENDING, 3=LOCKOUT) ← FIXED
+          [8]  Motor State    (0=STOP, 1=RUN, 2=PENDING, 3=LOCKOUT)
           [9]  Alarm Flag     (1=any alarm active)
           [10] Trip Word      (fault bitmask, bits 0-5)
           [11] Running Time   (minutes)
           [12] Load           (%, 0-100)
-          [13] Alarm Word     (warning bitmask, bits 6-7) ← SEPARATED
-          [14] Lockout Status (1=latched, 0=clear) ← DEDICATED
+          [13] Alarm Word     (warning bitmask, bits 6-7)
+          [14] Lockout Status (1=latched, 0=clear)
           [15] Thermal Cap.   (θ × 1000)
           [16] Trip Count     (cumulative)
           [17] Heartbeat      (0-65535)
@@ -481,13 +564,13 @@ class Equipment:
                 int(self.data.power_factor * 100),
                 int(self.data.frequency * 10),
                 int(self.data.energy * 100),
-                int(self._motor_state),               # ← Immediate state, no UI lag
+                int(self._motor_state),
                 1 if self.protection.alarm_word else 0,
-                self.protection.trip_word,             # ← Faults only
+                self.protection.trip_word,
                 int(self.data.running_time),
                 int(self.data.load),
-                self.protection.alarm_word,            # ← Warnings only, no overload
-                1 if self.protection.latched else 0,   # ← Dedicated lockout bit
+                self.protection.alarm_word,
+                1 if self.protection.latched else 0,
                 int(self.protection.theta * 1000),
                 self.protection.trip_count,
                 self._heartbeat,

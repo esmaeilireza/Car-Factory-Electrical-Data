@@ -1,5 +1,26 @@
 ﻿"""
 Core data models for the industrial agent.
+
+ANSI naming convention
+----------------------
+There are **two** ways to identify an ANSI protection function, and this
+module exposes both because the rest of the system uses both:
+
+  * **Bit position** (0..7) — this is what `trip_word` and `alarm_word`
+    actually carry on the wire. The PLC sets `1 << bit`. All bitmask
+    iteration in the agent walks positions, not device numbers.
+
+  * **ANSI device number** (49, 50, 51, 27, 59, 38, 46, 37) — this is
+    what a human writes on a single-line diagram and what appears in
+    audit logs and incident reports.
+
+`ANSI_NAMES` is keyed by **bit position** because that is the format the
+agent sees at runtime. Each value embeds the ANSI code so that a single
+lookup yields both the code and the name for logging.
+
+For callers that need number-keyed lookup or the bit→number bridge, the
+module also provides `ANSI_NUMBER_TO_NAME`, `ANSI_BIT_TO_NUMBER`, and the
+helpers `ansi_display` / `ansi_name` / `ansi_number`.
 """
 
 from __future__ import annotations
@@ -34,7 +55,19 @@ class Severity(Enum):
     CRITICAL = "CRITICAL"
 
 
-ANSI_NAMES = {
+# ---------------------------------------------------------------------------
+# ANSI protection naming
+# ---------------------------------------------------------------------------
+#
+# Bit-position -> "CODE Name" display string.
+#
+# This is the *runtime* mapping. Keys match the bit positions written into
+# trip_word / alarm_word by the PLC simulator
+# (see Protection.TRIP_* / Protection.ALARM_* in data_generator.py).
+#
+# Do NOT renumber these keys. Callers iterate bit positions, not device
+# numbers, and depend on this exact layout.
+ANSI_NAMES: Dict[int, str] = {
     0: "49 Thermal Overload",
     1: "50 Instantaneous Overcurrent",
     2: "51 Time Overcurrent",
@@ -45,6 +78,64 @@ ANSI_NAMES = {
     7: "37 Loss of Load",
 }
 
+# Bit-position -> ANSI device number (int). Lets callers get from the
+# runtime bitmask to the number that a standards document uses.
+ANSI_BIT_TO_NUMBER: Dict[int, int] = {
+    0: 49,   # Thermal Overload
+    1: 50,   # Instantaneous Overcurrent
+    2: 51,   # Time Overcurrent
+    3: 27,   # Undervoltage
+    4: 59,   # Overvoltage
+    5: 38,   # Over-Temperature
+    6: 46,   # Phase Imbalance
+    7: 37,   # Loss of Load
+}
+
+# ANSI device number -> plain name (no code prefix). Useful for reports
+# and for anything that already has the number and wants the label.
+ANSI_NUMBER_TO_NAME: Dict[int, str] = {
+    49: "Thermal Overload",
+    50: "Instantaneous Overcurrent",
+    51: "Time Overcurrent",
+    27: "Undervoltage",
+    59: "Overvoltage",
+    38: "Over-Temperature",
+    46: "Phase Imbalance",
+    37: "Loss of Load",
+}
+
+
+def ansi_display(bit: int) -> str:
+    """
+    Return the display string for a bit position, e.g. "49 Thermal Overload".
+
+    Falls back to a synthetic label so callers never crash on an
+    unexpected bit; the label is still traceable back to the raw value.
+    """
+    return ANSI_NAMES.get(bit, f"ANSI bit {bit} (unknown)")
+
+
+def ansi_name(bit: int) -> str:
+    """
+    Return just the protection name for a bit position, e.g. "Thermal Overload".
+
+    Derived from ANSI_BIT_TO_NUMBER / ANSI_NUMBER_TO_NAME so the two
+    tables cannot drift apart.
+    """
+    number = ANSI_BIT_TO_NUMBER.get(bit)
+    if number is None:
+        return f"unknown (bit {bit})"
+    return ANSI_NUMBER_TO_NAME.get(number, f"unknown (ANSI {number})")
+
+
+def ansi_number(bit: int) -> Optional[int]:
+    """Return the ANSI device number for a bit position, or None if unknown."""
+    return ANSI_BIT_TO_NUMBER.get(bit)
+
+
+# ---------------------------------------------------------------------------
+# Numeric coercion helpers
+# ---------------------------------------------------------------------------
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -62,6 +153,10 @@ def _safe_int(value: Any, default: int = 0) -> int:
     except Exception:
         return default
 
+
+# ---------------------------------------------------------------------------
+# Snapshots and findings
+# ---------------------------------------------------------------------------
 
 @dataclass
 class EquipmentSnapshot:

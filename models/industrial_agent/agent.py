@@ -345,6 +345,15 @@ class IndustrialCognitiveAgent:
             entry = finding.to_dict()
             self.anomaly_log.append(entry)
             self.audit.log("FINDING", entry)
+            # NEXUS_REMEDIATION_HOOK_V1
+            try:
+                from .remediation_hook import run_remediation_after_finding as _nexus_run_rem
+                _nexus_run_rem(self, entry)
+            except Exception as _nexus_rem_err:
+                try:
+                    self.audit.log("REMEDIATION_HOOK_ERROR", {"error": str(_nexus_rem_err)})
+                except Exception:
+                    pass
             print(f"[AGENT] [{finding.severity.value}] {finding.eq_id}: {finding.message}")
 
     def _build_recommendations(self) -> List[Dict[str, Any]]:
