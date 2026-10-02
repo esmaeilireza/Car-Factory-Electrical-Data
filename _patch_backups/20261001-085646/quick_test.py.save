@@ -742,16 +742,10 @@ def check_database() -> None:
             ((datetime.now() - timedelta(minutes=5)).isoformat(),),
         ).fetchall()
 
-        # THETA-PRESENCE-FIX: the regression this check guards is theta being
-        # dropped from the payload (NULL column), not values being positive.
-        # theta == 0 is VALID immediately after plant resets (thermal capacity
-        # starts at zero), which made the old "> 0" condition flaky.
-        theta_ok = bool(rows) and any(r[0] is not None for r in rows)
         record(
             "Theta flowing (payload-fix regression)",
-            theta_ok,
-            f"theta present ({sum(1 for r in rows if r[0] and r[0] > 0)} rows >0, "
-            f"{len(rows)} total)" if theta_ok else "no theta rows in last 5 min",
+            any(r[0] > 0 for r in rows) if rows else False,
+            "theta present" if rows else "no rows in last 5 min",
         )
 
         types = {
@@ -1486,45 +1480,18 @@ def cognitive_sweep(
 
         plc_offset = AUDIT_PLC.stat().st_size if AUDIT_PLC.is_file() else 0
 
-        def _plc_inject_confirmed(addr: int, since: int, timeout_s: float = 15.0) -> bool:
-            """PLC-AUDIT-CONFIRM: scan the PLC audit log (appended after `since`)
-            for a FAULT_INJECT entry with result OK at the given address."""
-            deadline = time.time() + timeout_s
-            while time.time() < deadline:
-                try:
-                    if AUDIT_PLC.is_file():
-                        with open(AUDIT_PLC, "r", encoding="utf-8", errors="replace") as fh:
-                            fh.seek(since)
-                            for line in fh:
-                                if ('"FAULT_INJECT"' in line
-                                        and f'"address": {addr}' in line
-                                        and '"OK"' in line):
-                                    return True
-                except Exception:
-                    pass
-                time.sleep(0.5)
-            return False
-
         # Inject fault.
         try:
             wr = armed_write_fault(client, fault_addr, code)
-            frame_ok = (wr is not None) and (not wr.isError())
-        except Exception:
-            frame_ok = False
+            accepted = not wr.isError()
+        except Exception as e:
+            accepted = False
             wr = None
-
-        # PLC-AUDIT-CONFIRM: the simulator consumes the fault register after
-        # processing and silently drops un-armed writes, so neither frame ACK
-        # nor read-back proves injection. The PLC audit entry is authoritative.
-        audit_ok = _plc_inject_confirmed(fault_addr, plc_offset)
-        accepted = audit_ok
 
         record(
             f"[{eq}] fault register write accepted",
             accepted,
-            (f"HR[{fault_addr}]={code} plc-audit-confirmed (frame_ack={frame_ok})"
-             if accepted else
-             f"unconfirmed: frame_ack={frame_ok}, wr={wr}, no FAULT_INJECT OK entry"),
+            f"HR[{fault_addr}]={code}" if accepted else f"write error: {wr}",
         )
 
         # Best-effort protective response observation.
@@ -1544,7 +1511,7 @@ def cognitive_sweep(
                 and str(pay.get("eq_id", "")) == _eq
                 and str(pay.get("severity", "")).upper() in ("HIGH", "CRITICAL")
             ),
-            timeout_s=180,
+            timeout_s=90,
         )
 
         device_summary["finding"] = fnd is not None
@@ -1553,16 +1520,16 @@ def cognitive_sweep(
             fnd is not None,
             f"{(fnd.get('payload') or {}).get('code', 'unknown')}"
             if fnd
-            else "timeout within 180s",
+            else "timeout within 90s",
         )
 
         # Wait for local LLM diagnosis.
         llm = tailer.wait_for(
             lambda rec, pay, _eq=eq: (
                 str(pay.get("source", "")) == "LLM"
-                and str(pay.get("eq_id", "")) in ("", _eq, "SYSTEM")  # SYSTEM-FIX: agent tags system-level LLM findings eq_id="SYSTEM"
+                and str(pay.get("eq_id", "")) in ("", _eq)
             ),
-            timeout_s=240,
+            timeout_s=120,
         )
 
         device_summary["llm"] = llm is not None
@@ -1611,13 +1578,13 @@ def cognitive_sweep(
                     continue
 
                 body = read_text_safe(p)
-                if contains_any(body, needles):  # MATCH-FIX: SYSTEM-level incidents may not name the injecting device
+                if eq in body and contains_any(body, needles):
                     seen_incidents.add(p.name)
                     return p, body
 
             return None, ""
 
-        deadline = time.time() + 90  # MATCH-FIX: widened for LLM + bridge latency
+        deadline = time.time() + 45
         while time.time() < deadline and incident is None:
             incident, incident_body = find_incident()
             if incident is None:
@@ -1627,7 +1594,7 @@ def cognitive_sweep(
         record(
             f"[{eq}] Obsidian incident auto-created",
             incident is not None,
-            incident.name if incident else "none within 90s",
+            incident.name if incident else "none within 45s",
         )
 
         if incident:
@@ -1763,9 +1730,9 @@ def cognitive_sweep(
         llm = tailer.wait_for(
             lambda rec, pay, _eq=eq: (
                 str(pay.get("source", "")) == "LLM"
-                and str(pay.get("eq_id", "")) in ("", _eq, "SYSTEM")  # SYSTEM-FIX: agent tags system-level LLM findings eq_id="SYSTEM"
+                and str(pay.get("eq_id", "")) in ("", _eq)
             ),
-            timeout_s=240,
+            timeout_s=120,
         )
 
         if llm is None:
@@ -1969,17 +1936,6 @@ def autonomous_remediation_probe(
         f"HR[{load_addr}]={baseline_load}",
     )
 
-    # REMEDIATION-BASELINE-FIX: a baseline of 0 cannot be reduced, making the
-    # load-reduction assertion unmeasurable. Arm, then set a reducible setpoint.
-    try:
-        armed_write_fault(client, load_addr, 80)
-        time.sleep(0.5)
-        baseline_load = read_hr(client, load_addr)
-        summary["baseline_load"] = baseline_load
-        record("Baseline load setpoint raised", baseline_load == 80, f"HR[{load_addr}]={baseline_load}")
-    except Exception as _bl_err:
-        record("Baseline load setpoint raised", False, f"error: {_bl_err}", warn_only=True)
-
     # Clear any previous fault on this device.
     try:
         armed_write_fault(client, fault_addr, 0)
@@ -1995,38 +1951,16 @@ def autonomous_remediation_probe(
     tailer.clear_buffer()
 
     # 3. Inject fault without any manual reset.
-    # PROBE-AUDIT-CONFIRM: frame ACK is not proof (see sweep fix); the PLC
-    # audit entry is authoritative.
-    plc_off = AUDIT_PLC.stat().st_size if AUDIT_PLC.is_file() else 0
     try:
         wr = armed_write_fault(client, fault_addr, code)
+        accepted = not wr.isError()
     except Exception:
-        wr = None
-
-    def _probe_inject_confirmed(addr: int, since: int, timeout_s: float = 15.0) -> bool:
-        deadline = time.time() + timeout_s
-        while time.time() < deadline:
-            try:
-                if AUDIT_PLC.is_file():
-                    with open(AUDIT_PLC, "r", encoding="utf-8", errors="replace") as fh:
-                        fh.seek(since)
-                        for line in fh:
-                            if ('"FAULT_INJECT"' in line
-                                    and f'"address": {addr}' in line
-                                    and '"OK"' in line):
-                                return True
-            except Exception:
-                pass
-            time.sleep(0.5)
-        return False
-
-    accepted = _probe_inject_confirmed(fault_addr, plc_off)
+        accepted = False
 
     record(
         f"[{eq}] autonomous probe fault injected",
         accepted,
-        f"HR[{fault_addr}]={code} plc-audit-confirmed" if accepted
-        else f"unconfirmed (wr={wr})",
+        f"HR[{fault_addr}]={code}",
     )
 
     # 4. Wait for REMEDIATION_DECISION.
@@ -2035,7 +1969,7 @@ def autonomous_remediation_probe(
             rec.get("event") == "REMEDIATION_DECISION"
             and str(pay.get("eq_id", "")) == eq
         ),
-        timeout_s=180,
+        timeout_s=90,
     )
 
     summary["decision"] = decision_rec is not None
@@ -2044,7 +1978,7 @@ def autonomous_remediation_probe(
         approved = (decision_rec.get("payload") or {}).get("approved_actions", [])
         detail = f"approved={approved}"
     else:
-        detail = "timeout within 180s"
+        detail = "timeout within 90s"
 
     record(
         f"[{eq}] REMEDIATION_DECISION emitted",
@@ -2053,57 +1987,25 @@ def autonomous_remediation_probe(
     )
 
     # 5. Wait for AUTO_REMEDIATION_EXECUTED.
-    rem_rec = tailer.wait_for(
+    exec_rec = tailer.wait_for(
         lambda rec, pay: (
             rec.get("event") in {"AUTO_REMEDIATION_EXECUTED", "REMEDIATION_NOT_EXECUTED"}
-            and str(pay.get("decision", {}) or {}).get("eq_id", "") == eq
+            and str(((pay.get("decision") or {}).get("eq_id", ""))) == eq
         ),
-        timeout_s=180,
+        timeout_s=90,
     )
 
-    summary["executed"] = False
-    summary["policy_withheld"] = False
-    option_a_ok = False
-    detail = "timeout within 180s"
+    executed = False
+    if exec_rec:
+        payload = exec_rec.get("payload", {}) or {}
+        executed = bool(payload.get("executed"))
 
-    if rem_rec is not None:
-        pay = rem_rec.get("payload") or {}
-        executed = bool(pay.get("executed"))
-        reason = str(pay.get("reason", ""))
-        decision = pay.get("decision") or {}
-        approved = [a.get("type") if isinstance(a, dict) else str(a)
-                    for a in (decision.get("approved_actions") or [])]
-        detail = (f"event={rem_rec.get('event')}, executed={executed}, "
-                  f"approved={approved}, reason={reason[:120]}")
-        summary["executed"] = executed
-        # OPTION-A-VALID-OUTCOME: in limited_autonomous mode, the policy may
-        # deliberately withhold actuation. A decision that approved only
-        # operator-facing/hold actions is a POLICY-VALID terminal outcome,
-        # not a failure of the remediation pipeline.
-        policy_valid = {"HOLD_STATE", "REQUEST_OPERATOR_ACK"}
-        if executed:
-            option_a_ok = True
-        elif approved and set(approved).issubset(policy_valid):
-            summary["policy_withheld"] = True
-            option_a_ok = True
-            detail += " [policy-valid withhold: Option A]"
-
-    # OPTION-A-VALID-OUTCOME (fallback): if the execution event was never
-    # observed but the DECISION itself approved only policy-valid actions,
-    # the remediation pipeline succeeded by the chosen Option A semantics.
-    if not option_a_ok and decision_rec is not None:
-        _d_app = [a.get("type") if isinstance(a, dict) else str(a)
-                  for a in ((decision_rec.get("payload") or {}).get("approved_actions") or [])]
-        if _d_app and set(_d_app).issubset({"HOLD_STATE", "REQUEST_OPERATOR_ACK"}):
-            option_a_ok = True
-            summary["policy_withheld"] = True
-            detail = (f"Option A fallback: decision approved {_d_app}; "
-                      f"execution event not observed")
+    summary["executed"] = executed
 
     record(
         f"[{eq}] AUTO_REMEDIATION_EXECUTED observed",
-        option_a_ok,
-        detail,
+        exec_rec is not None and executed,
+        f"event={(exec_rec or {}).get('event', 'none')}, executed={executed}",
     )
 
     # 6. Verify load setpoint decreased.
@@ -2122,18 +2024,7 @@ def autonomous_remediation_probe(
         f"[{eq}] load setpoint reduced autonomously",
         load_reduced,
         f"baseline={baseline_load}, new={new_load}",
-    ) if not summary.get("policy_withheld") else True
-
-    if summary.get("policy_withheld") and not load_reduced:
-        # LOAD-REDUCED-OPTION-A: under Option A the policy deliberately
-        # withholds actuation, so no load reduction can occur. This is the
-        # chosen safety semantics, not a pipeline failure.
-        record(
-            f"[{eq}] load setpoint reduced autonomously",
-            True,
-            f"[policy-valid withhold: Option A] baseline={baseline_load}, "
-            f"new={new_load} (no actuation by policy design)",
-        )
+    )
 
     # 7. No forbidden action executed.
     forbidden, forbidden_detail = _scan_for_forbidden_events(tail_lines=300)

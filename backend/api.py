@@ -392,6 +392,19 @@ async def lifespan(app: FastAPI):
         command_callback=None,
     )
 
+    # ALARM-SINK WIRING: persist HIGH/CRITICAL findings to alarm_events.
+    try:
+        from industrial_agent.remediation_hook import set_alarm_sink
+        set_alarm_sink(db)
+        # OBSIDIAN-HANDLE-WIRING: pass the obsidian bridge module itself —
+        # it exposes the module-level append_remediation_section(...) the
+        # engine looks for via hasattr(...).
+        import obsidian_bridge as _ob
+        set_obsidian_handle(_ob)
+        print("[API] alarm_events sink wired into remediation hook")
+    except Exception as _sink_err:
+        print(f"[API] alarm sink wiring failed: {_sink_err}")
+
     app.state.agent = agent
     app.state.system_status = system_status
 

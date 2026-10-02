@@ -72,7 +72,7 @@ def _rotate_if_needed() -> None:
 # Incident creation (unchanged behavior)
 # ---------------------------------------------------------------------------
 
-def log_incident(
+def _log_incident_once(
     equipment_ids: list,
     fault_type: str,
     diagnosis: str,
@@ -138,7 +138,19 @@ source: {source}
         if not real_ids and not referenced:
             content += "- None (system-level finding; no specific machine named)\n"
 
-        filepath.write_text(content, encoding="utf-8")
+        import os as _os, tempfile as _tempfile
+        tmp_fd, tmp_path = _tempfile.mkstemp(
+            dir=str(INCIDENTS_DIR), prefix=".tmp_", suffix=".md")
+        try:
+            with _os.fdopen(tmp_fd, "w", encoding="utf-8") as _fh:
+                _fh.write(content)
+            _os.replace(tmp_path, filepath)  # atomic on POSIX & Windows
+        except Exception:
+            try:
+                _os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         _rotate_if_needed()
         return str(filepath)
 
@@ -379,3 +391,27 @@ if __name__ == "__main__":
     # 3. Idempotency check: calling again should be a no-op.
     ok2 = append_remediation_section("STP-01", decision, execution_result)
     print(f"[TEST] second append (should be True, no duplication) ok={ok2}")
+
+
+def log_incident(
+    equipment_ids: list,
+    fault_type: str,
+    diagnosis: str,
+    recommended_action: str,
+    severity: str = "MEDIUM",
+    source: str = "ai_engine",
+) -> str:
+    """Retry wrapper (exponential backoff 0.5s/1s/2s) around the atomic
+    single-shot writer. Same signature — call sites need no changes."""
+    import time as _time
+    result = ""
+    for attempt in range(3):
+        result = _log_incident_once(
+            equipment_ids, fault_type, diagnosis,
+            recommended_action, severity, source,
+        )
+        if result:
+            return result
+        if attempt < 2:
+            _time.sleep(0.5 * (2 ** attempt))
+    return result

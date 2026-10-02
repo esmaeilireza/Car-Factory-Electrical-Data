@@ -4,6 +4,26 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from .remediation import RemediationEngine
 
+# --- alarm-events sink (wired once by backend/api.py) ----------------------
+_alarm_sink = None
+
+
+_obsidian_handle = None
+
+
+def set_obsidian_handle(handle) -> None:
+    """Register the obsidian bridge so the engine can append the
+    Autonomous Remediation section to the latest incident note."""
+    global _obsidian_handle
+    _obsidian_handle = handle
+
+
+def set_alarm_sink(db_handle) -> None:
+    """Register the backend DB handle so HIGH/CRITICAL findings are persisted
+    into the alarm_events table (statistical memory)."""
+    global _alarm_sink
+    _alarm_sink = db_handle
+
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_POLICY = ROOT / "configs" / "remediation_policy.json"
 DEFAULT_EQ_IDS = ["STP-01", "WLD-01", "PNT-01", "ASM-01", "UTI-01", "UTI-02"]
@@ -148,6 +168,11 @@ def ensure_engine(a) -> RemediationEngine:
     mode = os.environ.get("NEXUS_REMEDIATION_MODE")
     if mode and mode in e.policy.raw.get("supported_modes", []): e.set_mode(mode)
     setattr(a, "remediation_engine", e)
+    if _obsidian_handle is not None:
+        try:
+            e.obsidian = _obsidian_handle  # OBSIDIAN-HANDLE-WIRING
+        except Exception as _obs_err:
+            _audit(au, "OBSIDIAN_HANDLE_WIRING_FAILED", {"error": str(_obs_err)})
     return e
 
 
@@ -164,6 +189,15 @@ def run_remediation_after_finding(a, finding) -> Optional[Tuple[Any, Dict[str, A
         if idx is None:
             _audit(au, "REMEDIATION_HOOK_SKIPPED", {"reason":"missing_eq_index","eq_id":eq}); return None
         ansi, sev, aa, rec = _ansi(d), _severity(d) or "HIGH", _auto_allowed(d), _llm_rec(a, d)
+        if _alarm_sink is not None and sev.upper() in ("HIGH", "CRITICAL"):
+            try:
+                _alarm_sink.save_alarm_event(
+                    eq, str(d.get("code", "FINDING")), ansi,
+                    str(d.get("message", ""))[:250], sev,
+                )
+                _audit(au, "ALARM_EVENT_RECORDED", {"eq_id": eq, "severity": sev})
+            except Exception as _db_err:
+                _audit(au, "ALARM_EVENT_RECORD_FAILED", {"error": str(_db_err)})
         eng = ensure_engine(a)
         _audit(au, "REMEDIATION_ENGINE_READY",
                {"eq_id":eq,"eq_index":idx,"ansi":ansi,"severity":sev,"auto_allowed":aa,
