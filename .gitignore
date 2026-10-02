@@ -68,4 +68,6 @@ data/scada_vault/Incidents/
 # /tools/
 
 # ---------- Evidence artifacts: portfolio proof, KEEP TRACKED ----------
-!docs/evidence/*.jsonl
+!docs/evidence/*.jsonl_patch_backups/
+_patch_backups/
+_patch_backups/
