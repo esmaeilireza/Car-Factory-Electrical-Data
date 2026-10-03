@@ -28,10 +28,14 @@ Llama = None
 AutoModelForCausalLM = None
 
 try:
-    from obsidian_bridge import log_incident
+    # ATTRIBUTION-FIX: also import the known-equipment registry so device
+    # attribution can be mined even without an explicit device_id argument.
+    from obsidian_bridge import log_incident, KNOWN_EQ_IDS
     OBSIDIAN_AVAILABLE = True
 except Exception:
     OBSIDIAN_AVAILABLE = False
+    # Fallback registry so attribution still works if the bridge is missing.
+    KNOWN_EQ_IDS = ["STP-01", "WLD-01", "PNT-01", "ASM-01", "UTI-01", "UTI-02"]
 
 
 def _debug_env() -> None:
@@ -138,7 +142,6 @@ class AIDiagnosisEngine:
         # Attempt 1: llama-cpp-python (supports Qwen2 natively)
         # ------------------------------------------------------------
         if LLAMA_CPP_AVAILABLE:
-            # [DEBUG] verbose can be enabled via env var
             verbose = os.getenv("SCADA_AI_VERBOSE", "0") == "1"
             if verbose:
                 print("[AI DEBUG] SCADA_AI_VERBOSE=1 -> llama.cpp internal logs ON")
@@ -150,12 +153,11 @@ class AIDiagnosisEngine:
                     n_ctx=n_ctx,
                     n_threads=n_threads,
                     n_gpu_layers=0,     # CPU only
-                    verbose=verbose,    # [DEBUG] internal llama.cpp logs
+                    verbose=verbose,
                 )
                 self.backend = "llama-cpp"
                 print("[AI] llama-cpp-python loaded successfully (CPU-only)")
             except Exception as e:
-                # [DEBUG] full traceback, not one line
                 print(f"[AI] WARNING: llama-cpp-python failed to load: {e}")
                 traceback.print_exc()
                 print("[AI] Falling back to ctransformers...")
@@ -241,6 +243,42 @@ class AIDiagnosisEngine:
             return ""
 
     # ============================================================
+    # ATTRIBUTION-FIX: resolve affected equipment so incident
+    # filenames are never _SYSTEM when an ID is recoverable.
+    # ============================================================
+    def _resolve_equipment_ids(self, diagnosis: Dict, device_id: str = "") -> List[str]:
+        """
+        Resolve the affected-equipment list for a diagnosis.
+
+        Priority:
+          1. Non-empty affected_equipment from the diagnosis itself
+             (SYSTEM entries filtered out).
+          2. Explicit device_id argument (caller-known equipment).
+          3. Text mining: KNOWN_EQ_IDS appearing in diagnosis /
+             recommended_action / root_cause text.
+
+        Returns [] only when nothing is recoverable (honest SYSTEM fallback
+        downstream).
+        """
+        ids: List[str] = [
+            e for e in (diagnosis.get("affected_equipment") or [])
+            if e and str(e).upper() != "SYSTEM"
+        ]
+        if ids:
+            return ids
+
+        if device_id:
+            return [device_id]
+
+        haystack = " ".join([
+            str(diagnosis.get("diagnosis", "")),
+            str(diagnosis.get("recommended_action", "")),
+            str(diagnosis.get("root_cause", "")),
+        ]).upper()
+
+        return [eq for eq in KNOWN_EQ_IDS if eq.upper() in haystack]
+
+    # ============================================================
     # Rule-based pre-check for fast, deterministic responses
     # ============================================================
     def _rule_based_precheck(self, session_state: Dict, traffic_log: List,
@@ -309,13 +347,24 @@ class AIDiagnosisEngine:
         return None
 
     def analyze_system_state(self, session_state: Dict, traffic_log: List,
-                             modbus_errors: List, recent_data: pd.DataFrame) -> Dict:
-        """Analyze current system state and identify issues."""
+                             modbus_errors: List, recent_data: pd.DataFrame,
+                             device_id: str = "") -> Dict:
+        """
+        Analyze current system state and identify issues.
+
+        ATTRIBUTION-FIX: optional ``device_id`` (e.g. "UTI-01") lets callers
+        that know the equipment stamp the diagnosis so incident filenames are
+        never _SYSTEM when attribution is possible. Existing callers that do
+        not pass it keep working unchanged (default "").
+        """
         rule_result = self._rule_based_precheck(session_state, traffic_log,
                                                 modbus_errors, recent_data)
         if rule_result is not None:
             print(f"[AI] Rule-based diagnosis: {rule_result['diagnosis']}")
-            self._log_audit("RULE_BASED_DIAGNOSIS", rule_result)
+            # ATTRIBUTION-FIX: resolve equipment before audit/incident.
+            rule_result["affected_equipment"] = self._resolve_equipment_ids(
+                rule_result, device_id)
+            self._log_audit("RULE_BASED_DIAGNOSIS", rule_result, device_id=device_id)
             return rule_result
 
         context = self._build_context(session_state, traffic_log,
@@ -376,7 +425,10 @@ Respond ONLY with valid JSON matching the schema defined in SYSTEM_PROMPT.
                     diagnosis['safety_level'] = 1
                     diagnosis['human_approval_required'] = False
 
-                self._log_audit("AI_DIAGNOSIS", diagnosis)
+                # ATTRIBUTION-FIX: resolve equipment before audit/incident.
+                diagnosis["affected_equipment"] = self._resolve_equipment_ids(
+                    diagnosis, device_id)
+                self._log_audit("AI_DIAGNOSIS", diagnosis, device_id=device_id)
                 return diagnosis
             except Exception as e:
                 error_diagnosis = {
@@ -386,7 +438,7 @@ Respond ONLY with valid JSON matching the schema defined in SYSTEM_PROMPT.
                     "confidence": 0.0, "human_approval_required": False,
                     "affected_equipment": [], "iec_reference": "N/A", "source": "error",
                 }
-                self._log_audit("AI_ERROR", error_diagnosis)
+                self._log_audit("AI_ERROR", error_diagnosis, device_id=device_id)
                 return error_diagnosis
 
         except Exception as e:
@@ -398,7 +450,7 @@ Respond ONLY with valid JSON matching the schema defined in SYSTEM_PROMPT.
                 "confidence": 0.0, "human_approval_required": False,
                 "affected_equipment": [], "iec_reference": "N/A", "source": "error",
             }
-            self._log_audit("AI_ERROR", error_diagnosis)
+            self._log_audit("AI_ERROR", error_diagnosis, device_id=device_id)
             return error_diagnosis
 
     def _build_context(self, session_state: Dict, traffic_log: List,
@@ -464,12 +516,20 @@ Respond ONLY with valid JSON matching the schema defined in SYSTEM_PROMPT.
             "affected_equipment": [], "iec_reference": "N/A",
         }
 
-    def _log_audit(self, event: str, diagnosis: Dict):
-        """Log AI decision to audit log."""
+    def _log_audit(self, event: str, diagnosis: Dict, device_id: str = ""):
+        """
+        Log AI decision to audit log.
+
+        ATTRIBUTION-FIX: carries device_id into the record and resolves the
+        equipment list (diagnosis -> device_id -> text mining) before the
+        Obsidian incident call, so incident filenames are never _SYSTEM when
+        attribution is possible.
+        """
         log_entry = {
             "ts": datetime.now().isoformat(),
             "source": diagnosis.get('source', 'ai_engine'),
             "event": event,
+            "device_id": device_id,                       # ATTRIBUTION-FIX
             "safety_level": diagnosis.get("safety_level", 1),
             "equipment": diagnosis.get("affected_equipment", []),
             "diagnosis": diagnosis.get("diagnosis", ""),
@@ -493,8 +553,12 @@ Respond ONLY with valid JSON matching the schema defined in SYSTEM_PROMPT.
                 severity = str(diagnosis.get("severity", "low")).lower()
                 safety_level = int(diagnosis.get("safety_level", 1) or 1)
                 if severity in ("high", "critical") or safety_level >= 3:
+                    # ATTRIBUTION-FIX: resolve equipment (already resolved by
+                    # analyze_system_state, but re-resolve defensively so any
+                    # direct _log_audit caller benefits too).
+                    equipment_ids = self._resolve_equipment_ids(diagnosis, device_id)
                     log_incident(
-                        equipment_ids=diagnosis.get("affected_equipment", []),
+                        equipment_ids=equipment_ids,
                         fault_type=str(diagnosis.get("iec_reference", "") or "Unclassified"),
                         diagnosis=str(diagnosis.get("diagnosis", "")),
                         recommended_action=str(diagnosis.get("recommended_action", "")),

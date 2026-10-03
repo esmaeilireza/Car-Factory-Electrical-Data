@@ -68,8 +68,16 @@ def _rotate_if_needed() -> None:
         shutil.move(str(p), str(ARCHIVE_DIR / p.name))
 
 
+def _safe_mtime(p: Path) -> float:
+    """Mtime that survives files vanishing mid-iteration (atomic-write race)."""
+    try:
+        return p.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 # ---------------------------------------------------------------------------
-# Incident creation (unchanged behavior)
+# Incident creation
 # ---------------------------------------------------------------------------
 
 def _log_incident_once(
@@ -102,7 +110,13 @@ def _log_incident_once(
             f"[[ANSI-{fault_type}]]" if fault_type.startswith("ANSI-") else fault_type
         )
 
-        first_id = equipment_ids[0] if equipment_ids else "SYSTEM"
+        # ATTRIBUTION-FIX: prefer an explicit device ID, then a mined one.
+        # The filename stem must match what find_latest_incident_for looks
+        # for, so remediation appends land on the correct note.
+        first_id = (
+            real_ids[0] if real_ids
+            else (referenced[0] if referenced else "SYSTEM")
+        )
         filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{first_id}.md"
         filepath = INCIDENTS_DIR / filename
 
@@ -159,6 +173,30 @@ source: {source}
         return ""
 
 
+def log_incident(
+    equipment_ids: list,
+    fault_type: str,
+    diagnosis: str,
+    recommended_action: str,
+    severity: str = "MEDIUM",
+    source: str = "ai_engine",
+) -> str:
+    """Retry wrapper (exponential backoff 0.5s/1s/2s) around the atomic
+    single-shot writer. Same signature — call sites need no changes."""
+    import time as _time
+    result = ""
+    for attempt in range(3):
+        result = _log_incident_once(
+            equipment_ids, fault_type, diagnosis,
+            recommended_action, severity, source,
+        )
+        if result:
+            return result
+        if attempt < 2:
+            _time.sleep(0.5 * (2 ** attempt))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Incident lookup (used by remediation append)
 # ---------------------------------------------------------------------------
@@ -170,7 +208,9 @@ def find_latest_incident_for(eq_id: str) -> Optional[Path]:
     Lookup strategy:
       1. Filename glob ``*_{eq_id}.md`` -- matches the naming convention
          produced by :func:`log_incident`.
-      2. Bounded content scan of the N most recent files -- catches
+      2. Case-insensitive stem-suffix match ``..._{eq_id}`` -- tolerant of
+         naming variations.
+      3. Bounded content scan of the N most recent files -- catches
          SYSTEM-tagged incidents whose body references ``eq_id``.
 
     Returns ``None`` if nothing is found or if any error occurs.
@@ -179,24 +219,38 @@ def find_latest_incident_for(eq_id: str) -> Optional[Path]:
         if not eq_id or not INCIDENTS_DIR.exists():
             return None
 
+        eq_upper = eq_id.upper()
+
         # Primary: filename match.
         by_name = [p for p in INCIDENTS_DIR.glob(f"*_{eq_id}.md") if p.is_file()]
+        if not by_name:
+            # ATTRIBUTION-FIX: case-insensitive stem-suffix fallback
+            # (..._uti-01.md also matches UTI-01 lookups).
+            by_name = [
+                p for p in INCIDENTS_DIR.glob("*.md")
+                if p.is_file() and p.stem.upper().endswith(f"_{eq_upper}")
+            ]
         if by_name:
-            by_name.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            by_name.sort(key=_safe_mtime, reverse=True)
             return by_name[0]
 
         # Fallback: bounded content scan of the newest files.
-        all_md = [p for p in INCIDENTS_DIR.glob("*.md") if p.is_file()]
+        all_md = [
+            p for p in INCIDENTS_DIR.glob("*.md")
+            if p.is_file() and not p.name.startswith(".tmp_")
+        ]
         if not all_md:
             return None
-        all_md.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        all_md.sort(key=_safe_mtime, reverse=True)
 
         for p in all_md[:_CONTENT_SCAN_LIMIT]:
             try:
                 text = p.read_text(encoding="utf-8")
-            except Exception:
+            except OSError:
                 continue
-            if f"[[{eq_id}]]" in text or eq_id in p.name:
+            # ATTRIBUTION-FIX: also match the plain device id — Layer A
+            # prefixes LLM diagnoses with it, so it appears as body text.
+            if f"[[{eq_id}]]" in text or eq_id in text:
                 return p
 
         return None
@@ -280,7 +334,6 @@ def _format_remediation_section(
         lines.append("")
         for entry in results:
             if isinstance(entry, dict):
-                # Render each key=value pair as its own bullet for clarity.
                 for k, v in entry.items():
                     lines.append(f"- {k}: {v}")
             else:
@@ -391,27 +444,3 @@ if __name__ == "__main__":
     # 3. Idempotency check: calling again should be a no-op.
     ok2 = append_remediation_section("STP-01", decision, execution_result)
     print(f"[TEST] second append (should be True, no duplication) ok={ok2}")
-
-
-def log_incident(
-    equipment_ids: list,
-    fault_type: str,
-    diagnosis: str,
-    recommended_action: str,
-    severity: str = "MEDIUM",
-    source: str = "ai_engine",
-) -> str:
-    """Retry wrapper (exponential backoff 0.5s/1s/2s) around the atomic
-    single-shot writer. Same signature — call sites need no changes."""
-    import time as _time
-    result = ""
-    for attempt in range(3):
-        result = _log_incident_once(
-            equipment_ids, fault_type, diagnosis,
-            recommended_action, severity, source,
-        )
-        if result:
-            return result
-        if attempt < 2:
-            _time.sleep(0.5 * (2 ** attempt))
-    return result
