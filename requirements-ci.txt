@@ -1,23 +1,7 @@
-# =============================================================================
-#  CI-ONLY requirements
-# =============================================================================
-#
-#  This file is identical to requirements.txt EXCEPT that it excludes
-#  llama-cpp-python.
-#
-#  Rationale:
-#    llama-cpp-python has no pre-built wheel for GitHub-hosted Ubuntu
-#    runners, and its source build fails during `pip install` (needs
-#    cmake + several minutes of compile). The CI job does not exercise
-#    the LLM at all — it runs byte-compile, unit tests, and an import
-#    smoke test. None of those require the LLM package.
-#
-#    The live verifier (tests/quick_test.py --live) still installs the
-#    full requirements.txt on developer machines where the model exists.
-#
-#  Regenerate when requirements.txt changes:
-#    grep -v -i '^llama-cpp-python' requirements.txt > requirements-ci.txt
-# =============================================================================
+# CI-only requirements — identical to requirements.txt minus
+# llama-cpp-python, which cannot be built from source on GitHub-hosted
+# runners. Regenerate with:
+#   grep -v -i '^llama-cpp-python' requirements.txt > requirements-ci.txt
 
 altair==6.3.0
 annotated-doc==0.0.5
