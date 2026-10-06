@@ -45,7 +45,7 @@ tzdata==2026.5
 urllib3==2.8.0
 uvicorn==0.53.0
 watchdog==6.0.0
-websockets==17.2
+websockets==16.1.1
 
 # -----------------------------------------------------------------------------
 # Manual step required: llama-cpp-python
