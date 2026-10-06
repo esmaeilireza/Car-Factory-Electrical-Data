@@ -33,6 +33,7 @@ pydantic==2.13.5
 pydantic_core==2.46.5
 pydeck==0.9.3
 pymodbus==3.6.9
+pytest==9.1.1
 python-dateutil==2.9.0.post0
 python-multipart==0.0.32
 referencing==0.37.0
