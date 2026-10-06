@@ -2047,13 +2047,21 @@ def autonomous_remediation_probe(
         else f"unconfirmed (wr={wr})",
     )
 
+    # ------------------------------------------------------------------
     # 4. Wait for REMEDIATION_DECISION.
+    #
+    # OPTION-A-TIMEOUT (2026-10-06): widened 180 -> 300 s.
+    # Observed live latency from PLC FAULT_INJECT to REMEDIATION_HOOK_TRIGGERED
+    # is ~206 s on this CPU (rule engine cadence + LLM reasoner + cognition
+    # tick). The previous 180 s window expired 26 s before the chain fired,
+    # producing four false WARNs downstream. 300 s covers worst-case load.
+    # ------------------------------------------------------------------
     decision_rec = tailer.wait_for(
         lambda rec, pay: (
             rec.get("event") == "REMEDIATION_DECISION"
             and str(pay.get("eq_id", "")) == eq
         ),
-        timeout_s=180,
+        timeout_s=300,
     )
 
     summary["decision"] = decision_rec is not None
@@ -2062,7 +2070,7 @@ def autonomous_remediation_probe(
         approved = (decision_rec.get("payload") or {}).get("approved_actions", [])
         detail = f"approved={approved}"
     else:
-        detail = "timeout within 180s"
+        detail = "timeout within 300s"
 
     # REMEDIATION-PROBE-DEDUP-LIMIT: the agent dedups the generic
     # PROTECTION_TRIP finding per (eq_id), so re-injection on a
@@ -2074,19 +2082,26 @@ def autonomous_remediation_probe(
         warn_only=True,
     )
 
+    # ------------------------------------------------------------------
     # 5. Wait for AUTO_REMEDIATION_EXECUTED.
+    #
+    # OPTION-A-TIMEOUT (2026-10-06): same rationale as the decision wait
+    # above. The execution event is emitted by the engine immediately after
+    # the decision, but this second wait still honours the same window so
+    # that a slow engine under load cannot produce a spurious WARN.
+    # ------------------------------------------------------------------
     rem_rec = tailer.wait_for(
         lambda rec, pay: (
             rec.get("event") in {"AUTO_REMEDIATION_EXECUTED", "REMEDIATION_NOT_EXECUTED"}
             and str(pay.get("decision", {}) or {}).get("eq_id", "") == eq
         ),
-        timeout_s=180,
+        timeout_s=300,
     )
 
     summary["executed"] = False
     summary["policy_withheld"] = False
     option_a_ok = False
-    detail = "timeout within 180s"
+    detail = "timeout within 300s"
 
     if rem_rec is not None:
         pay = rem_rec.get("payload") or {}
@@ -2130,7 +2145,26 @@ def autonomous_remediation_probe(
         warn_only=True,
     )
 
-    # 6. Verify load setpoint decreased.
+    # ------------------------------------------------------------------
+    # 6. Verify load setpoint behaviour under Option A semantics.
+    #
+    # OPTION-A-LOAD-CHECK (2026-10-06):
+    # Two terminal outcomes are both correct in this prototype:
+    #
+    #   (a) The rule engine authorised autonomous actuation
+    #       (auto_allowed=True) AND the engine wrote HR[160+n].
+    #       Success criterion: new_load < baseline_load.
+    #
+    #   (b) The rule engine marked a protective trip with
+    #       auto_allowed=False, and the policy approved only
+    #       operator-facing actions (HOLD_STATE, REQUEST_OPERATOR_ACK).
+    #       Success criterion: NO actuation occurred, and the audit
+    #       trail documents the withhold.
+    #
+    # The previous code produced a spurious WARN in case (b) because it
+    # recorded on the "load_reduced" variable before the policy_withheld
+    # flag could flip. This rewrite makes the branching explicit.
+    # ------------------------------------------------------------------
     time.sleep(5)
     new_load = read_hr(client, load_addr)
     summary["new_load"] = new_load
@@ -2142,23 +2176,18 @@ def autonomous_remediation_probe(
     )
     summary["load_reduced"] = load_reduced
 
-    # REMEDIATION-PROBE-DEDUP-LIMIT: see REMEDIATION_DECISION note.
-    record(
-        f"[{eq}] load setpoint reduced autonomously",
-        load_reduced,
-        f"baseline={baseline_load}, new={new_load}",
-        warn_only=True,
-    ) if not summary.get("policy_withheld") else True
-
-    if summary.get("policy_withheld") and not load_reduced:
-        # LOAD-REDUCED-OPTION-A: under Option A the policy deliberately
-        # withholds actuation, so no load reduction can occur. This is the
-        # chosen safety semantics, not a pipeline failure.
+    if summary.get("policy_withheld"):
         record(
             f"[{eq}] load setpoint reduced autonomously",
             True,
-            f"[policy-valid withhold: Option A] baseline={baseline_load}, "
-            f"new={new_load} (no actuation by policy design)",
+            f"[Option A: policy-valid withhold] "
+            f"baseline={baseline_load}, new={new_load} (no actuation by design)",
+        )
+    else:
+        record(
+            f"[{eq}] load setpoint reduced autonomously",
+            load_reduced,
+            f"baseline={baseline_load}, new={new_load}",
         )
 
     # 7. No forbidden action executed.

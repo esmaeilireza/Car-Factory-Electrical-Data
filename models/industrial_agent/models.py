@@ -21,15 +21,26 @@ lookup yields both the code and the name for logging.
 For callers that need number-keyed lookup or the bit→number bridge, the
 module also provides `ANSI_NUMBER_TO_NAME`, `ANSI_BIT_TO_NUMBER`, and the
 helpers `ansi_display` / `ansi_name` / `ansi_number`.
+
+MetricWindow
+------------
+Bounded rolling window for one telemetry metric. Restored because
+IndustrialCognitiveAgent._update_windows constructs
+``MetricWindow(maxlen=...)`` per metric, and rules/trends engines call
+``.update(timestamp, value)`` and read statistics (mean/std/max/latest)
+from the stored samples. Both the "append-only" and "timestamped update"
+APIs are supported so every consumer works regardless of which style it
+was written against.
 """
 
 from __future__ import annotations
 
 import math
 import time
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class OperatingMode(Enum):
@@ -93,7 +104,7 @@ ANSI_BIT_TO_NUMBER: Dict[int, int] = {
 
 # ANSI device number -> plain name (no code prefix). Useful for reports
 # and for anything that already has the number and wants the label.
-ANSI_NUMBER_TO_NAME: Dict[int, str] = {
+ANSI_NUMBER_TO_NAME: Dict[int, int | str] = {
     49: "Thermal Overload",
     50: "Instantaneous Overcurrent",
     51: "Time Overcurrent",
@@ -125,7 +136,7 @@ def ansi_name(bit: int) -> str:
     number = ANSI_BIT_TO_NUMBER.get(bit)
     if number is None:
         return f"unknown (bit {bit})"
-    return ANSI_NUMBER_TO_NAME.get(number, f"unknown (ANSI {number})")
+    return str(ANSI_NUMBER_TO_NAME.get(number, f"unknown (ANSI {number})"))
 
 
 def ansi_number(bit: int) -> Optional[int]:
@@ -152,6 +163,114 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
+
+
+# ---------------------------------------------------------------------------
+# MetricWindow (restored — required by IndustrialCognitiveAgent,
+# rules engine, and trends engine)
+# ---------------------------------------------------------------------------
+
+class MetricWindow:
+    """
+    Bounded rolling window for one telemetry metric.
+
+    Supports BOTH historical call styles found in this codebase:
+
+      * ``append(value)``            — agent's ``_update_windows``
+      * ``update(timestamp, value)`` — rules/trends engines
+
+    and exposes the statistics consumers rely on: ``mean()``,
+    ``std()``, ``max()``, ``min()``, ``latest()``, ``values()``,
+    ``count()``, ``is_empty()``.
+
+    The maxlen bound mirrors the original contract
+    (``MetricWindow(maxlen=...)``).
+    """
+
+    __slots__ = ("_values", "_timestamps", "_maxlen")
+
+    def __init__(self, maxlen: int = 60) -> None:
+        self._values: deque = deque(maxlen=max(1, int(maxlen)))
+        self._timestamps: deque = deque(maxlen=max(1, int(maxlen)))
+
+    # -- writers ------------------------------------------------------------
+
+    def append(self, value) -> None:
+        """Agent-style append (no timestamp)."""
+        self._values.append(_safe_float(value, 0.0))
+
+    def update(self, timestamp: float, value) -> None:
+        """Rules/trends-style append with an explicit timestamp."""
+        self._timestamps.append(_safe_float(timestamp, time.time()))
+        self._values.append(_safe_float(value, 0.0))
+
+    def clear(self) -> None:
+        self._values.clear()
+        self._timestamps.clear()
+
+    # -- readers -------------------------------------------------------------
+
+    def values(self) -> List[float]:
+        return list(self._values)
+
+    def count(self) -> int:
+        return len(self._values)
+
+    def is_empty(self) -> bool:
+        return not self._values
+
+    def latest(self) -> Optional[float]:
+        return self._values[-1] if self._values else None
+
+    def first(self) -> Optional[float]:
+        return self._values[0] if self._values else None
+
+    def mean(self) -> Optional[float]:
+        if not self._values:
+            return None
+        return sum(self._values) / len(self._values)
+
+    def std(self) -> Optional[float]:
+        """Population standard deviation; None when fewer than 2 samples."""
+        n = len(self._values)
+        if n < 2:
+            return None
+        mu = sum(self._values) / n
+        var = sum((v - mu) ** 2 for v in self._values) / n
+        return math.sqrt(var)
+
+    def max(self) -> Optional[float]:
+        return max(self._values) if self._values else None
+
+    def min(self) -> Optional[float]:
+        return min(self._values) if self._values else None
+
+    def slope(self) -> Optional[float]:
+        """
+        Simple linear trend (per-sample delta) for trend engines:
+        (last - first) / (n - 1). None when fewer than 2 samples.
+        """
+        n = len(self._values)
+        if n < 2:
+            return None
+        return (self._values[-1] - self._values[0]) / (n - 1)
+
+    def minmax(self) -> Optional[Tuple[float, float]]:
+        if not self._values:
+            return None
+        return (min(self._values), max(self._values))
+
+    # -- dunders -------------------------------------------------------------
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __repr__(self) -> str:
+        return (f"MetricWindow(n={len(self._values)}, "
+                f"latest={self.latest()}, mean={self.mean()})")
 
 
 # ---------------------------------------------------------------------------
@@ -261,3 +380,30 @@ class Finding:
         d = asdict(self)
         d["severity"] = self.severity.value
         return d
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Finding":
+        """Reconstruct a Finding from a plain dict (audit/LLM round-trip).
+
+        FIX: the remediation hook and agent pass plain dicts into code that
+        expects Finding objects; without this constructor the round-trip
+        crashes on the Severity enum. Tolerates both enum values ("HIGH")
+        and raw names.
+        """
+        sev_raw = str(data.get("severity", "MEDIUM")).upper()
+        try:
+            severity = Severity[sev_raw]
+        except KeyError:
+            severity = Severity.MEDIUM
+        return cls(
+            eq_id=str(data.get("eq_id", data.get("equipment_id", "SYSTEM"))),
+            code=str(data.get("code", "UNKNOWN")),
+            severity=severity,
+            message=str(data.get("message", "")),
+            source=str(data.get("source", "unknown")),
+            evidence=dict(data.get("evidence", {}) or {}),
+            suggested_action=str(data.get("suggested_action", "none")),
+            safety_level=int(data.get("safety_level", 1)),
+            auto_allowed=bool(data.get("auto_allowed", False)),
+            timestamp=float(data.get("timestamp", time.time())),
+        )

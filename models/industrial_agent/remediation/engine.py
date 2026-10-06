@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import threading
@@ -465,7 +467,6 @@ class RemediationEngine:
                 )
             )
 
-        # Notification/hold are always safe to propose.
         add(
             "REQUEST_OPERATOR_ACK",
             f"Operator awareness for ANSI-{a or 'NA'} ({sev}).",
@@ -479,7 +480,6 @@ class RemediationEngine:
                 prio=40,
             )
 
-        # Actuation requires explicit auto_allowed from the rule engine.
         if not aa:
             return actions
 
@@ -621,7 +621,6 @@ class RemediationEngine:
         """
         results: List[Dict[str, Any]] = []
 
-        # Path 1: advisory mode, no actuation.
         if getattr(self.policy, "mode", "advisory") != "limited_autonomous":
             payload = {
                 "executed": False,
@@ -631,7 +630,6 @@ class RemediationEngine:
             }
             return self._finalize(decision, payload)
 
-        # Path 2: rule engine withheld autonomy.
         if decision.auto_allowed is False:
             payload = {
                 "executed": False,
@@ -641,7 +639,6 @@ class RemediationEngine:
             }
             return self._finalize(decision, payload)
 
-        # Path 3: execute approved bounded actions.
         for act in decision.approved_actions:
             try:
                 if act.type == "REDUCE_LOAD":
@@ -710,7 +707,6 @@ class RemediationEngine:
           * Never raises; a failure in the vault writer must not break the
             deterministic control path.
         """
-        # 1. Audit.
         try:
             self._audit_execution(payload)
         except Exception as exc:
@@ -721,10 +717,6 @@ class RemediationEngine:
                 exc_info=True,
             )
 
-        # 2. Obsidian incident note.
-        # Called for BOTH executed=True and executed=False so the vault
-        # is a complete record of every remediation decision, including
-        # advisory-mode and auto_allowed=False cases.
         try:
             self._update_obsidian(decision, payload)
         except Exception as exc:
@@ -836,7 +828,6 @@ class RemediationEngine:
 
             decision_dict = asdict(decision)
 
-            # 1. Try the configured Obsidian bridge first.
             if self.obsidian is not None and hasattr(self.obsidian, "append_remediation_section"):
                 try:
                     self.obsidian.append_remediation_section(
@@ -852,8 +843,6 @@ class RemediationEngine:
                         exc_info=True,
                     )
 
-            # 2. Ensure a vault record exists even if the bridge is missing or failed.
-            #    The worker avoids duplicate sections when possible.
             self._schedule_obsidian_direct_append(decision_dict, result)
 
         except Exception as exc:
@@ -893,154 +882,108 @@ class RemediationEngine:
         result: Dict[str, Any],
         start_ts: float,
     ) -> None:
+        """
+        Create a distinct Obsidian incident note for this remediation event.
+
+        For prototype/live verification, each fault event should produce a
+        new incident file. This avoids the old behavior where an existing
+        incident with an already-present remediation section caused the
+        worker to skip creating a new observable event.
+        """
         try:
             inc_dir = self.vault / "Incidents"
             inc_dir.mkdir(parents=True, exist_ok=True)
 
             section = self._format_remediation_section(decision_dict, result)
-            deadline = time.time() + 120.0
 
-            while time.time() < deadline:
-                try:
-                    files = list(inc_dir.glob("*.md"))
-                except Exception:
-                    files = []
+            safe_eq = "".join(
+                ch if ch.isalnum() or ch in "-_" else "_"
+                for ch in str(eq_id or "UNKNOWN")
+            )
 
-                candidates = []
+            # Unique per event, so repeated faults on the same device do not
+            # collide or get suppressed by an old note.
+            fingerprint = (
+                f"{eq_id}|"
+                f"{ansi_code}|"
+                f"{start_ts}|"
+                f"{json.dumps(result, sort_keys=True, default=str)}"
+            )
+            uid = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:8]
 
-                for p in files:
-                    try:
-                        st = p.stat()
-                        if st.st_mtime < start_ts - 300:
-                            continue
-                        body = p.read_text(encoding="utf-8", errors="ignore")
-                    except Exception:
-                        continue
+            filename = f"Incident_{int(start_ts * 1000)}_{safe_eq}_{uid}.md"
+            path = inc_dir / filename
 
-                    if eq_id and eq_id in body:
-                        candidates.append((st.st_mtime, p, body))
+            ansi_raw = str(ansi_code or "").strip()
+            if ansi_raw and not ansi_raw.upper().startswith("ANSI-"):
+                ansi_display = f"ANSI-{ansi_raw}"
+            else:
+                ansi_display = ansi_raw
 
-                candidates.sort(key=lambda item: item[0], reverse=True)
+            link_lines = []
 
-                for _, p, body in candidates:
-                    if "Autonomous Remediation" not in body:
-                        try:
-                            with p.open("a", encoding="utf-8") as f:
-                                f.write(section)
+            if eq_id:
+                link_lines.append(f"- Equipment: [[{eq_id}]]")
 
-                            self._audit(
-                                "REMEDIATION_OBSIDIAN_APPENDED",
-                                {
-                                    "eq_id": eq_id,
-                                    "incident": p.name,
-                                    "mode": result.get("mode"),
-                                    "executed": result.get("executed"),
-                                },
-                            )
-                        except Exception as exc:
-                            logger.warning(
-                                "Obsidian append failed for eq_id=%r incident=%r: %s",
-                                eq_id,
-                                p.name,
-                                exc,
-                                exc_info=True,
-                            )
-                            self._audit(
-                                "REMEDIATION_OBSIDIAN_APPEND_ERROR",
-                                {
-                                    "eq_id": eq_id,
-                                    "incident": p.name,
-                                    "error": str(exc),
-                                },
-                            )
-                        return
+            if ansi_display:
+                link_lines.append(f"- Protection standard: [[{ansi_display}]]")
 
-                    self._audit(
-                        "REMEDIATION_OBSIDIAN_ALREADY_PRESENT",
-                        {
-                            "eq_id": eq_id,
-                            "incident": p.name,
-                            "mode": result.get("mode"),
-                            "executed": result.get("executed"),
-                        },
-                    )
-                    return
+            if not link_lines:
+                link_lines.append("- Equipment: [[SYSTEM]]")
 
-                # No existing incident note found. Create one.
-                safe_eq = "".join(
-                    ch if ch.isalnum() or ch in "-_" else "_"
-                    for ch in str(eq_id or "UNKNOWN")
-                )
+            links_md = "\n".join(link_lines)
 
-                p = inc_dir / f"Incident_{int(start_ts * 1000)}_{safe_eq}.md"
+            status = "REMEDIATED" if result.get("executed") else "WITHHELD"
+            severity = decision_dict.get("severity", "")
+            auto_allowed = decision_dict.get("auto_allowed")
+            mode = result.get("mode", "")
+            reason = result.get("reason", "")
 
-                status = "REMEDIATED" if result.get("executed") else "WITHHELD"
-                severity = decision_dict.get("severity", "")
+            initial = (
+                "---\n"
+                f"equipment_id: {eq_id}\n"
+                f"status: {status}\n"
+                f"severity: {severity}\n"
+                f"ansi_code: {ansi_raw}\n"
+                f"mode: {mode}\n"
+                f"executed: {bool(result.get('executed'))}\n"
+                f"created: {datetime.now().isoformat(timespec='seconds')}\n"
+                "---\n\n"
+                f"# Incident {eq_id}\n\n"
+                "## Links\n\n"
+                f"{links_md}\n\n"
+                "## Detection\n\n"
+                "- Source: NEXUS remediation engine\n"
+                f"- ANSI code: `{ansi_raw or 'n/a'}`\n"
+                f"- Severity: `{severity}`\n"
+                f"- Auto allowed: `{auto_allowed}`\n"
+                f"- Mode: `{mode}`\n"
+                f"- Executed: `{bool(result.get('executed'))}`\n"
+                f"- Reason: `{reason or 'n/a'}`\n"
+            )
 
-                initial = (
-                    "---\n"
-                    f"equipment_id: {eq_id}\n"
-                    f"status: {status}\n"
-                    f"severity: {severity}\n"
-                    f"ansi_code: {ansi_code}\n"
-                    f"created: {datetime.now().isoformat(timespec='seconds')}\n"
-                    "---\n\n"
-                    f"# Incident {eq_id}\n\n"
-                    "## Detection\n\n"
-                    "- Source: NEXUS remediation engine\n"
-                    f"- ANSI code: {ansi_code}\n"
-                    f"- Severity: {severity}\n"
-                    f"- Auto allowed: {decision_dict.get('auto_allowed')}\n"
-                )
-
-                try:
-                    p.write_text(initial + section, encoding="utf-8")
-                    self._audit(
-                        "REMEDIATION_OBSIDIAN_CREATED",
-                        {
-                            "eq_id": eq_id,
-                            "incident": p.name,
-                            "mode": result.get("mode"),
-                            "executed": result.get("executed"),
-                        },
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Obsidian create failed for eq_id=%r incident=%r: %s",
-                        eq_id,
-                        p.name,
-                        exc,
-                        exc_info=True,
-                    )
-                    self._audit(
-                        "REMEDIATION_OBSIDIAN_CREATE_ERROR",
-                        {
-                            "eq_id": eq_id,
-                            "incident": p.name,
-                            "error": str(exc),
-                        },
-                    )
-
-                return
+            path.write_text(initial + section, encoding="utf-8")
 
             self._audit(
-                "REMEDIATION_OBSIDIAN_APPEND_TIMEOUT",
+                "REMEDIATION_OBSIDIAN_CREATED",
                 {
                     "eq_id": eq_id,
-                    "ansi_code": ansi_code,
-                    "vault": str(self.vault),
+                    "incident": path.name,
+                    "mode": mode,
+                    "executed": bool(result.get("executed")),
+                    "ansi_code": ansi_raw,
                 },
             )
 
         except Exception as exc:
             logger.warning(
-                "Obsidian worker failed for eq_id=%r: %s",
+                "Obsidian direct incident creation failed for eq_id=%r: %s",
                 eq_id,
                 exc,
                 exc_info=True,
             )
             self._audit(
-                "REMEDIATION_OBSIDIAN_WORKER_ERROR",
+                "REMEDIATION_OBSIDIAN_CREATE_ERROR",
                 {
                     "eq_id": eq_id,
                     "ansi_code": ansi_code,
@@ -1071,6 +1014,14 @@ class RemediationEngine:
         mode = result.get("mode")
         reason = result.get("reason", "")
 
+        eq_id = str(decision_dict.get("eq_id", "") or "")
+        ansi_raw = str(decision_dict.get("ansi_code", "") or "")
+
+        if ansi_raw and not ansi_raw.upper().startswith("ANSI-"):
+            ansi_link = f"ANSI-{ansi_raw}"
+        else:
+            ansi_link = ansi_raw
+
         load_lines = []
         for r in result.get("results", []) or []:
             if not isinstance(r, dict):
@@ -1085,18 +1036,29 @@ class RemediationEngine:
             "",
             "## Autonomous Remediation",
             "",
-            f"- Timestamp: `{datetime.now().isoformat(timespec='seconds')}`",
-            f"- ANSI code: `{decision_dict.get('ansi_code', '')}`",
-            f"- Severity: `{decision_dict.get('severity', '')}`",
-            f"- Auto allowed: `{decision_dict.get('auto_allowed')}`",
-            f"- Policy version: `{decision_dict.get('policy_version', '')}`",
-            f"- Mode: `{mode}`",
-            f"- Executed: `{executed}`",
-            f"- Reason: `{reason or 'n/a'}`",
-            f"- Approved actions: `{', '.join(x for x in approved if x) or 'none'}`",
-            f"- Rejected actions: `{', '.join(x for x in rejected if x) or 'none'}`",
-            "",
         ]
+
+        if eq_id:
+            lines.append(f"- Equipment: [[{eq_id}]]")
+
+        if ansi_link:
+            lines.append(f"- Protection standard: [[{ansi_link}]]")
+
+        lines.extend(
+            [
+                f"- Timestamp: `{datetime.now().isoformat(timespec='seconds')}`",
+                f"- ANSI code: `{ansi_raw or 'n/a'}`",
+                f"- Severity: `{decision_dict.get('severity', '')}`",
+                f"- Auto allowed: `{decision_dict.get('auto_allowed')}`",
+                f"- Policy version: `{decision_dict.get('policy_version', '')}`",
+                f"- Mode: `{mode}`",
+                f"- Executed: `{executed}`",
+                f"- Reason: `{reason or 'n/a'}`",
+                f"- Approved actions: `{', '.join(x for x in approved if x) or 'none'}`",
+                f"- Rejected actions: `{', '.join(x for x in rejected if x) or 'none'}`",
+                "",
+            ]
+        )
 
         if load_lines:
             lines.append("### Load Setpoint Changes")

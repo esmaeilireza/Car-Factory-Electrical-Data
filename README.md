@@ -1,38 +1,38 @@
 <div align="center">
 
-  <!-- LOGO SECTION -->
-  <img src="./docs/repository-icon.png" alt="NEXUS SCADA Logo" width="250" style="margin-bottom: 10px;"/>
+  <!-- LOGO SECTION -->
+  <img src="./docs/repository-icon.png" alt="NEXUS SCADA Logo" width="250" style="margin-bottom: 10px;"/>
 
-  # ⚡ NEXUS SCADA
+  # ⚡ NEXUS SCADA
 
-  ### **Cognitive Industrial Automation Platform**
+  ### **Cognitive Industrial Automation Platform**
 
-  *A research prototype and reference architecture bridging deterministic Layer-2 control with local LLM intelligence.*
+  *A research prototype and reference architecture bridging deterministic Layer-2 control with local LLM intelligence.*
 
-  <br/>
+  <br/>
 
-  ![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python&logoColor=white)
-  ![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-  ![PyModbus](https://img.shields.io/badge/PyModbus-3.6.9-orange?style=for-the-badge&logo=modbus&logoColor=white)
-  ![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-  ![Qwen LLM](https://img.shields.io/badge/LLM-Qwen2.5--Coder%201.5B-8A2BE2?style=for-the-badge&logo=huggingface&logoColor=white)
-  ![Streamlit](https://img.shields.io/badge/Streamlit-1.64-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
-  ![Tkinter](https://img.shields.io/badge/HMI-Tkinter%20Native-green?style=for-the-badge&logo=python&logoColor=white)
-  ![Plotly](https://img.shields.io/badge/Analytics-Plotly%207.1-3F4F75?style=for-the-badge&logo=plotly&logoColor=white)
-  ![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
-  ![Version](https://img.shields.io/badge/Version-v0.1.0--alpha-blue?style=for-the-badge)
+  ![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python&logoColor=white)
+  ![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+  ![PyModbus](https://img.shields.io/badge/PyModbus-3.6.9-orange?style=for-the-badge&logo=modbus&logoColor=white)
+  ![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+  ![Qwen LLM](https://img.shields.io/badge/LLM-Qwen2.5--Coder%201.5B-8A2BE2?style=for-the-badge&logo=huggingface&logoColor=white)
+  ![Streamlit](https://img.shields.io/badge/Streamlit-1.64-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
+  ![Tkinter](https://img.shields.io/badge/HMI-Tkinter%20Native-green?style=for-the-badge&logo=python&logoColor=white)
+  ![Plotly](https://img.shields.io/badge/Analytics-Plotly%207.1-3F4F75?style=for-the-badge&logo=plotly&logoColor=white)
+  ![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
+  ![Version](https://img.shields.io/badge/Version-v0.1.0--alpha-blue?style=for-the-badge)
 
-  <br/>
+  <br/>
 
-  [🏗️ Architecture](#architecture) •
-  [🧠 Cognitive Agent](#cognitive) •
-  [📡 Register Map](#register-map) •
-  [📦 Setup](#setup) •
-  [✅ Verification](#verification) •
-  [🖼️ Demo](#visuals) •
-  [⚠️ Limitations](#limitations) •
-  [🚀 Deployment](#deployment) •
-  [👥 Team](#team)
+  [🏗️ Architecture](#architecture) •
+  [🧠 Cognitive Agent](#cognitive) •
+  [📡 Register Map](#register-map) •
+  [📦 Setup](#setup) •
+  [✅ Verification](#verification) •
+  [🖼️ Demo](#visuals) •
+  [⚠️ Limitations](#limitations) •
+  [🚀 Deployment](#deployment) •
+  [👥 Team](#team)
 
 </div>
 
@@ -63,7 +63,7 @@ Unlike traditional SCADA alarm systems that only report threshold violations, NE
 
 The result is a **fail-safe, observable, locally executable automation prototype**.
 
-> **Important positioning statement:**  
+> **Important positioning statement:**  
 > NEXUS SCADA is not presented as a certified industrial product. It is a research prototype and reference architecture for exploring the boundary between deterministic industrial control and cognitive diagnosis.
 
 ---
@@ -75,31 +75,31 @@ The system enforces a strict **Single Source of Truth** topology. The PLC simula
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
-│                     PLC Simulator (Python)                         │
-│   6 Equipment × 18 Registers + HR[120] System Status Word          │
-│   ANSI-inspired Protection Layer                                   │
-│   (49/50/51/27/59/38/46/37) + E-STOP Latching                      │
+│                     PLC Simulator (Python)                         │
+│   6 Equipment × 18 Registers + HR[120] System Status Word          │
+│   ANSI-inspired Protection Layer                                   │
+│   (49/50/51/27/59/38/46/37) + E-STOP Latching                      │
 └──────────────────────────────┬─────────────────────────────────────┘
-                               │ Modbus TCP (Port 5020)
-                               ▼
+                               │ Modbus TCP (Port 5020)
+                               ▼
 ┌────────────────────────────────────────────────────────────────────┐
-│                     FastAPI Backend (Uvicorn)                      │
-│   ┌──────────────┐   ┌────────────────   ┌────────────────────  │
-│   │ SQLite (WAL) │   │ TTL API Cache  │   │ Industrial Agent   │  │
-│   └──────────────┘   └────────────────┘   └─────────┬──────────┘  │
+│                     FastAPI Backend (Uvicorn)                      │
+│   ┌──────────────┐   ┌────────────────   ┌────────────────────  │
+│   │ SQLite (WAL) │   │ TTL API Cache  │   │ Industrial Agent   │  │
+│   └──────────────┘   └────────────────┘   └─────────┬──────────┘  │
 └──────────────────────────────────────────────────────┼─────────────┘
-           │                                           │
-           ▼                                           ▼
-┌──────────────────────┐                    ┌──────────────────────┐
-│ Streamlit Dashboard  │                    │ Local LLM Engine     │
-│ (Layer 4 Analytics)  │                    │ (Qwen2.5-Coder 1.5B) │
-└──────────────────────┘                    └──────────┬───────────┘
-                                                       │
-                                                       ▼
-                                            ┌──────────────────────┐
-                                            │ Obsidian Knowledge   │
-                                            │ Vault (Incidents/)   │
-                                            └──────────────────────┘
+           │                                           │
+           ▼                                           ▼
+┌──────────────────────┐                    ┌──────────────────────┐
+│ Streamlit Dashboard  │                    │ Local LLM Engine     │
+│ (Layer 4 Analytics)  │                    │ (Qwen2.5-Coder 1.5B) │
+└──────────────────────┘                    └──────────┬───────────┘
+                                                       │
+                                                       ▼
+                                            ┌──────────────────────┐
+                                            │ Obsidian Knowledge   │
+                                            │ Vault (Incidents/)   │
+                                            └──────────────────────┘
 ```
 
 ### Architectural Principles
@@ -347,7 +347,7 @@ GitHub enforces a hard limit of 100 MB per file, and large binary artifacts shou
 mkdir -p models
 
 curl -L -o models/qwen2.5-coder-1.5b-instruct-q6_k.gguf \
-  https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q6_k.gguf
+  https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q6_k.gguf
 ```
 
 #### Option B: Direct Download, Windows PowerShell
@@ -356,8 +356,8 @@ curl -L -o models/qwen2.5-coder-1.5b-instruct-q6_k.gguf \
 New-Item -ItemType Directory -Force -Path models | Out-Null
 
 Invoke-WebRequest `
-  -Uri "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q6_k.gguf" `
-  -OutFile "models\qwen2.5-coder-1.5b-instruct-q6_k.gguf"
+  -Uri "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q6_k.gguf" `
+  -OutFile "models\qwen2.5-coder-1.5b-instruct-q6_k.gguf"
 ```
 
 #### Option C: Hugging Face CLI
@@ -366,8 +366,8 @@ Invoke-WebRequest `
 pip install huggingface_hub
 
 huggingface-cli download Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF \
-  qwen2.5-coder-1.5b-instruct-q6_k.gguf \
-  --local-dir models
+  qwen2.5-coder-1.5b-instruct-q6_k.gguf \
+  --local-dir models
 ```
 
 Verify that the file exists:
@@ -402,7 +402,7 @@ Obsidian is **not required for the SCADA system to run**, but it is strongly rec
 
 1. Download Obsidian from the official website:
 
-   [https://obsidian.md/download](https://obsidian.md/download)
+   [https://obsidian.md/download](https://obsidian.md/download)
 
 2. Install the desktop application for your operating system.
 
@@ -410,15 +410,15 @@ Obsidian is **not required for the SCADA system to run**, but it is strongly rec
 
 4. Select:
 
-   ```text
-   Open another vault → Open folder as vault
-   ```
+   ```text
+   Open another vault → Open folder as vault
+   ```
 
 5. Navigate to your project folder and select:
 
-   ```text
-   Car-Factory-Electrical-Data/data/scada_vault
-   ```
+   ```text
+   Car-Factory-Electrical-Data/data/scada_vault
+   ```
 
 6. Open the vault.
 
@@ -442,28 +442,63 @@ Inside Obsidian, you can use:
 <a id="verification"></a>
 ## ✅ Verification & Evidence
 
-NEXUS SCADA includes a behavioral verification suite that checks the system end-to-end.
+NEXUS SCADA includes a **behavioral verification suite** (`tests/quick_test.py`) that exercises the full cognitive-industrial chain, not just structural presence.
 
-The verifier can:
+### Current verified status (2026-10-06)
 
-- confirm backend/API availability,
-- validate SQLite telemetry freshness,
-- inspect hash-chained JSONL audit logs,
-- verify Obsidian vault structure,
-- run Modbus live probes,
-- inject a simulated thermal fault,
-- wait for the rule engine to emit a HIGH or CRITICAL finding,
-- wait for the local LLM to produce a diagnosis,
-- verify that an Obsidian incident file is created,
-- confirm that the incident contains `[[wiki-links]]`.
+The following status was produced by `tests/quick_test.py --live --json` and is backed by a machine-readable artifact under `docs/evidence/`:
 
-Evidence artifacts are stored under:
-
-```text
-docs/evidence/
+```
+PASS: 139   WARN: 2   FAIL: 0
+VERDICT: SYSTEM HEALTHY - safe to proceed
 ```
 
-### Run the Read-Only Verifier
+| Layer | Status | Evidence |
+|-------|--------|----------|
+| Deterministic safety layer | **100%** of live probes pass | E-STOP exactly-once, HR[120] bit0 latch/unlatch, ANSI trip latching, idempotent recovery, block restart |
+| Cognitive triad (fault → rule engine → LLM → Obsidian) | **6/6 devices** complete | One chain per equipment node, each producing a distinct diagnosis and a `[[wiki-link]]`-rich incident note |
+| Statistical memory persistence | **PASS** | `alarm_events` populated per sweep (+33 rows) |
+| Audit hash-chain integrity | **PASS** | 2581 records, linkage intact |
+| Autonomous remediation (Option A semantics) | **PASS** | `REMEDIATION_DECISION` emitted; actuation withheld because the rule engine marks protective trips as `auto_allowed=False` |
+| Episodic-memory probe | **WARN** | Dedup limit; see [Known Limitations → Verification backlog](#limitations) |
+| Obsidian remediation-section discovery | **WARN** | Async write race; see [Known Limitations → Verification backlog](#limitations) |
+
+### Verification history — from 6 WARNs to 2 WARNs
+
+The verifier has been tightened during development. An earlier run on 2026-10-06 produced **137 PASS / 6 WARN / 0 FAIL**. Four of those six WARNs turned out to be **observability defects in the verifier itself**, not real system failures. The following table records exactly what was wrong and what was changed:
+
+| Original WARN | Root cause | Resolution |
+|---------------|-----------|------------|
+| `Streamlit :8501 not running` | Cosmetic — the UI process was not launched before the verifier ran | Streamlit is now started as part of the standard verification sweep |
+| `REMEDIATION_DECISION emitted — timeout within 180s` | Verifier window (180 s) was **shorter than observed chain latency** (~206 s on this CPU: rule-engine cadence + LLM reasoner + cognition tick) | Verifier timeout extended to **300 s** to match observed latency; the audit log already proved the chain fired correctly |
+| `AUTO_REMEDIATION_EXECUTED observed — timeout within 180s` | Downstream of the same 180 s window | Same fix (300 s) |
+| `load setpoint reduced autonomously — baseline=80, new=80` | Verifier recorded the check **before** the `policy_withheld` flag could be set; the withhold is intentional (Option A) | Check rewritten as an explicit `if policy_withheld: PASS else: <measurement>` branch |
+| `Obsidian incident contains Autonomous Remediation — not found` | **Still tracked.** Async write race; see [Known Limitations](#limitations) | Not yet fixed |
+| `prior_incidents field absent` | **Still tracked.** Episodic-memory prompt injection is a real feature gap; see [Known Limitations](#limitations) | Not yet fixed |
+
+**Key insight:** the deterministic safety layer and the cognitive triad were **already passing** in the 137/6/0 run. The four WARNs that changed to PASS were verifier-observability mismatches, not system regressions. The two remaining WARNs are genuine, documented backlog items.
+
+### What the verifier checks
+
+- Backend / API availability
+- SQLite telemetry freshness (last-write < 15 s)
+- Hash-chained JSONL audit integrity
+- Obsidian vault structure and writability
+- PLC audit correlation for each injection
+- Live Modbus probes: RESET, E-STOP exactly-once, HR[120] bit latching, block restart
+- Per-device cognitive chain:
+  - PLC-audit-confirmed fault injection
+  - Protective response in motor/trip/lockout registers
+  - Rule-engine `HIGH`/`CRITICAL` finding in agent audit
+  - Local Qwen diagnosis (canary-guard checked)
+  - Obsidian incident note with `[[wiki-links]]`
+- Autonomous remediation probe (Option A): mode set, fault injected, `REMEDIATION_DECISION` emitted, execution event observed, actuation withheld by policy, no forbidden actions executed
+- `alarm_events` populated per sweep (statistical memory persistence)
+- Unit test suite (`pytest`)
+
+### Running the verifier
+
+Read-only checks:
 
 ```bash
 # Windows
@@ -473,67 +508,86 @@ py tests/quick_test.py
 python tests/quick_test.py
 ```
 
-### Cold Start Mode
-
-If the backend is still loading the local LLM, use:
+Cold start (poll backend until ready):
 
 ```bash
-# Windows
 py tests/quick_test.py --wait 90
-
-# macOS / Linux
-python tests/quick_test.py --wait 90
 ```
 
-### Live Modbus and Cognitive Probes
-
-Live mode mutates plant state by injecting faults and testing E-STOP behavior.
+Live mode (mutates plant state):
 
 ```bash
-# Windows
 py tests/quick_test.py --live
-
-# macOS / Linux
-python tests/quick_test.py --live
 ```
 
-### Live Modbus Only, Skip Cognitive Probe
-
-To run live Modbus probes but skip the slower LLM/Obsidian cognitive probe:
+Live Modbus only, skip the slower cognitive sweep:
 
 ```bash
-# Windows
 py tests/quick_test.py --live --skip-cognitive
-
-# macOS / Linux
-python tests/quick_test.py --live --skip-cognitive
 ```
 
-### Write JSON Evidence Artifact
-
-To generate a machine-readable evidence file under `docs/evidence/`:
+Write a JSON evidence artifact:
 
 ```bash
-# Windows
-py tests/quick_test.py --json
-
-# macOS / Linux
-python tests/quick_test.py --json
+py tests/quick_test.py --live --json
 ```
 
-### Expected Healthy Output
-
-A healthy run should include lines similar to:
+Expected healthy output excerpt:
 
 ```text
-[PASS] GGUF model file
-[PASS] Vault present
+[PASS] GGUF model file                                      1396 MB
+[PASS] Vault present                                        data\scada_vault
 [PASS] Backend ready
-[PASS] 6/6 equipment live
-[PASS] agent_audit hash-chain linkage
+[PASS] All dashboard devices live                           live=6, expected=6
+[PASS] agent_audit hash-chain linkage                       2581 records, linkage intact
+[PASS] [UTI-01] REMEDIATION_DECISION emitted                approved=['HOLD_STATE', 'REQUEST_OPERATOR_ACK']
+[PASS] [UTI-01] AUTO_REMEDIATION_EXECUTED observed          [policy-valid withhold: Option A]
+PASS: 139   WARN: 2   FAIL: 0
 ```
 
-If the model is missing, the verifier will explicitly report it.
+---
+
+<a id="autonomous-remediation"></a>
+## 🤖 Autonomous Remediation Boundary
+
+NEXUS SCADA includes a **bounded autonomous remediation layer** for prototype validation.
+
+The local LLM may recommend diagnostic actions, but it never directly controls safety-critical PLC coils. All remediation actions pass through a deterministic safety guard.
+
+**Allowed limited-autonomous actions:**
+
+- reduce load setpoint,
+- hold state,
+- request operator acknowledgment,
+- isolate non-critical equipment,
+- apply prototype safe-stop surrogate.
+
+**Forbidden actions:**
+
+- reset global E-STOP,
+- clear E-STOP latch,
+- increase load,
+- bypass ANSI trips,
+- write safety coils,
+- start locked equipment.
+
+The remediation behaviour is controlled by:
+
+```text
+configs/remediation_policy.json
+```
+
+### Option A Semantics (verified)
+
+When the deterministic rule engine marks a **protective trip** as `auto_allowed=False`, the remediation engine:
+
+1. Emits `REMEDIATION_DECISION` with approved actions such as `HOLD_STATE` and `REQUEST_OPERATOR_ACK`.
+2. Emits `REMEDIATION_NOT_EXECUTED` with the explicit reason: *"Rule engine marked auto_allowed=False; actuation withheld."*
+3. Writes an Obsidian incident that documents the decision and the withhold.
+
+This is **intentional safety behaviour**, not a pipeline failure. The verifier records it as `PASS` with the annotation `[policy-valid withhold: Option A]`.
+
+> This is a research prototype control-loop demonstration, **not** a certified safety system.
 
 ---
 
@@ -576,7 +630,7 @@ Suggested demo flow:
 
 NEXUS SCADA is a research prototype, not a certified industrial safety system.
 
-Current limitations:
+### Safety and deployment
 
 - The PLC layer is a Python simulator, not a connection to a real Delta PLC or certified safety controller.
 - The system is not SIL-rated, IEC 61508-certified, or functionally safety-certified.
@@ -586,7 +640,58 @@ Current limitations:
 - Obsidian is used as a local Markdown knowledge viewer; the vault bridge is fire-and-forget and not a transactional incident-management system.
 - The current architecture does not include OPC-UA, MQTT, Kafka, authentication, TLS, role-based access control, or multi-tenant isolation.
 - The cognitive agent is diagnostic only and is never allowed to actuate safety-critical control decisions.
-- This repository is intended as a reference architecture and experimental platform, not as a turnkey production deployment.
+
+### Verification backlog — 2 remaining WARNs
+
+The verifier currently reports **2 WARN** out of 141 total checks. Both are genuine, reproducible, and tracked here with full context. Neither affects the deterministic safety layer or the cognitive triad.
+
+---
+
+#### WARN #1 — `Episodic probe: local LLM responded — timeout`
+
+**Symptom.** During the episodic-memory probe, the verifier re-injects a fault on a device that has already been swept, and waits up to 240 s for a fresh LLM consultation record. On current hardware this times out consistently.
+
+**Root cause.** The agent's finding logger deduplicates on `(eq_id, code_upper)` inside `_log_finding_if_new`. The rule engine emits the generic code `PROTECTION_TRIP` for every protective trip, so re-injection on the same device produces an edge key (`"STP-01:PROTECTION_TRIP"`) that is already marked as fired. The edge never re-triggers, and the LLM is never consulted. The verifier's own source code documents this as `EPISODIC-DEDUP-LIMIT`.
+
+**Impact.**
+- The deterministic layer is unaffected — the system still trips and latches correctly.
+- The cognitive triad is unaffected — every sweep device still produces a fresh diagnosis.
+- The *episodic-memory assertion* (that the LLM prompt includes prior vault incidents) cannot currently be evaluated end-to-end.
+
+**Status.** Backlog. Documented for transparency.
+
+**Fix path.** Either:
+- *(verifier-side)* pick an un-swept device for the episodic probe, so the dedup gate does not suppress the finding; or
+- *(agent-side)* add a `prior_incidents_count` integer to the LLM JSON response schema, and have the verifier check that field rather than waiting for a fresh LLM edge.
+
+Neither path weakens the safety contract. Both are small, self-contained changes.
+
+---
+
+#### WARN #2 — `Obsidian incident contains Autonomous Remediation — not found in recent incidents`
+
+**Symptom.** After the remediation probe, the verifier scans the top-10 newest `.md` files in `data/scada_vault/Incidents/` and searches for an incident note that contains both `[[UTI-01]]` and the section header `## Autonomous Remediation`. On current hardware this frequently misses the file, even though the audit log records `REMEDIATION_OBSIDIAN_CREATED`.
+
+**Root cause.** The remediation engine schedules the vault write via a daemon worker thread inside `_schedule_obsidian_direct_append`. The engine's `_finalize` returns immediately, the audit log is written, but the markdown file content may not be flushed to disk before the verifier's fixed 5-second `time.sleep()` elapses. On a loaded CPU (e.g., during back-to-back sweeps) the delay can exceed the window.
+
+**Impact.**
+- The remediation decision itself is correctly recorded in the hash-chained audit log — this WARN does not affect auditability.
+- The Obsidian UI may momentarily show an incident note without the remediation section, until the file is flushed.
+- The verifier cannot yet assert the remediation section is present, so it flags the check as WARN rather than PASS.
+
+**Status.** Backlog. Documented for transparency.
+
+**Fix path.** Either:
+- *(engine-side)* make the vault write synchronous within `RemediationEngine._finalize` — the write is a single small markdown file and is cheap; or
+- *(verifier-side)* replace the fixed 5 s sleep with a polling loop (up to 30 s), and widen the candidate set from top-10 to top-30 by mtime.
+
+The engine-side fix is the more principled one: it makes the audit entry and the file write atomic with respect to any observer. The verifier-side fix is a safety net for filesystem latency on Windows and networked drives.
+
+---
+
+### Scope
+
+This repository is intended as a **reference architecture** and **experimental platform**, not as a turnkey production deployment.
 
 ---
 
@@ -708,6 +813,12 @@ The model runs on-premise through `llama-cpp-python`.
 
 No cloud inference is required for diagnosis, making the architecture suitable for sensitive industrial environments where data locality matters.
 
+### Verifier Design
+
+The verifier is deliberately strict: it validates observable evidence (audit records, PLC registers, files on disk), not source-code claims. Where a design decision intentionally withholds actuation (Option A), the verifier records the withhold as a **policy-valid PASS** rather than a failure — because a safety contract that reliably refuses to act is exactly what this prototype exists to demonstrate.
+
+Two WARNs remain open. They are documented rather than hidden because the same evidence discipline that validates the passing checks must also surface the ones that are not yet fixed. A verifier that reports zero WARNs by construction is a verifier that has stopped measuring.
+
 ---
 
 <a id="team"></a>
@@ -718,34 +829,34 @@ This project represents an interdisciplinary fusion of **Industrial Electronics*
 It was developed collaboratively by three specialists aiming to bridge the gap between Industry 4.0 automation and Industry 5.0 human-centric cognition.
 
 <table>
-  <tr>
-    <td align="center"><strong>🔌 Hardware & Electrical Standards</strong></td>
-    <td align="center"><strong>🧠 Cognitive Architecture & ML</strong></td>
-    <td align="center"><strong>💻 Data Ops & Integration Lead</strong></td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://www.linkedin.com/in/peiman-kheiran-3a8211231/">
-        <strong>Peiman Kheiran</strong>
-      </a><br/>
-      <em>PhD Student, Electronics<br/>University of Windsor, Canada</em><br/><br/>
-      Contributed electrical standards review, protocol-level architecture guidance, and industrial communication design input.
-    </td>
-    <td align="center">
-      <a href="https://www.linkedin.com/in/atefeh-nouri-b32a7324a/">
-        <strong>Atefeh Nouri</strong>
-      </a><br/>
-      <em>MSc Student, Neurocognitive Psychology<br/>University of Oldenburg, Germany</em><br/><br/>
-      Contributed cognitive architecture input, Obsidian knowledge-graph design, and human-centered diagnostic framing.
-    </td>
-    <td align="center">
-      <a href="https://www.linkedin.com/in/reza-esmaeili-mood-990237273/">
-        <strong>Reza Esmaeili Mood</strong>
-      </a><br/>
-      <em>Industrial Data Analyst<br/>Project Lead & DevOps</em><br/><br/>
-      Led implementation, DataOps integration, backend wiring, verifier development, and public repository release engineering.
-    </td>
-  </tr>
+  <tr>
+    <td align="center"><strong>🔌 Hardware & Electrical Standards</strong></td>
+    <td align="center"><strong>🧠 Cognitive Architecture & ML</strong></td>
+    <td align="center"><strong>💻 Data Ops & Integration Lead</strong></td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://www.linkedin.com/in/peiman-kheiran-3a8211231/">
+        <strong>Peiman Kheiran</strong>
+      </a><br/>
+      <em>PhD Student, Electronics<br/>University of Windsor, Canada</em><br/><br/>
+      Contributed electrical standards review, protocol-level architecture guidance, and industrial communication design input.
+    </td>
+    <td align="center">
+      <a href="https://www.linkedin.com/in/atefeh-nouri-b32a7324a/">
+        <strong>Atefeh Nouri</strong>
+      </a><br/>
+      <em>MSc Student, Neurocognitive Psychology<br/>University of Oldenburg, Germany</em><br/><br/>
+      Contributed cognitive architecture input, Obsidian knowledge-graph design, and human-centered diagnostic framing.
+    </td>
+    <td align="center">
+      <a href="https://www.linkedin.com/in/reza-esmaeili-mood-990237273/">
+        <strong>Reza Esmaeili Mood</strong>
+      </a><br/>
+      <em>Industrial Data Analyst<br/>Project Lead & DevOps</em><br/><br/>
+      Led implementation, DataOps integration, backend wiring, verifier development, and public repository release engineering.
+    </td>
+  </tr>
 </table>
 
 ### Contribution Note
@@ -760,47 +871,12 @@ This note is included to preserve transparency and accurately represent the inte
 
 <div align="center">
 
-  > *"Can industrial machines possess human-like cognitive understanding? We believe the answer lies in the collaboration of human cognition and machine execution, with strict boundaries around safety."*
+  > *"Can industrial machines possess human-like cognitive understanding? We believe the answer lies in the collaboration of human cognition and machine execution, with strict boundaries around safety."*
 
-  <br/>
+  <br/>
 
-  **Architected for reliability, observability, and cognitive supervision.**
+  **Architected for reliability, observability, and cognitive supervision.**
 
-  <i>MIT License © 2026 Nexus SCADA Team</i>
+  <i>MIT License © 2026 Nexus SCADA Team</i>
 
 </div>
-````
-
-## 🤖 Autonomous Remediation Boundary
-
-NEXUS SCADA includes a bounded autonomous remediation layer for prototype validation.
-
-The local LLM may recommend diagnostic actions, but it never directly controls safety-critical PLC coils. All remediation actions pass through a deterministic safety guard.
-
-Allowed limited-autonomous actions:
-
-- reduce load setpoint,
-- hold state,
-- request operator acknowledgment,
-- isolate non-critical equipment,
-- apply prototype safe-stop surrogate.
-
-Forbidden actions:
-
-- reset global E-STOP,
-- clear E-STOP latch,
-- increase load,
-- bypass ANSI trips,
-- write safety coils,
-- start locked equipment.
-
-The remediation behavior is controlled by:
-
-```text
-configs/remediation_policy.json
-
-This is a research prototype control-loop demonstration, not a certified safety system.
-
-Update the README's verification section with the evidence-backed claim (paste-ready):
-
-Verification status: Deterministic safety layer — 100% across all live probes (E-STOP, latching, ANSI trips, idempotent recovery). Cognitive triad — 6/6 devices verified live: fault injection (PLC-audit-confirmed) → rule engine findings → local Qwen diagnosis → Obsidian incident, with statistical memory persistence (alarm_events populated per sweep). Remediation decisions fully audited in hash-chained JSONL. Known limitations documented in backlog: autonomous-remediation Obsidian section, device-scoped LLM context, episodic memory feeding.

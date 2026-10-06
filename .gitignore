@@ -23,6 +23,11 @@ car-factory-electrical-dashboard/
 .DS_Store
 Thumbs.db
 
+# ---------- Windows reserved-device-name artifacts ----------
+# Any script that emits `> nul` under Git Bash will create a file
+# named `nul` that Git Bash cannot delete normally. Never commit it.
+nul
+
 # ---------- Streamlit ----------
 .streamlit/
 
@@ -36,9 +41,13 @@ Thumbs.db
 docs/backups/
 backups/
 _heal_all_backups/
+_patch_backups/
+scripts/archive/autofix_backups/
 
 # ---------- Runtime logs ----------
 logs/
+autofix.log
+.autofix_tmp/
 
 # ---------- Large binary artifacts (kept outside git) ----------
 *.gguf
@@ -57,6 +66,9 @@ data/*.db-shm
 *.jsonl
 data/agent_audit.jsonl
 
+# ---------- Quarantined audit snapshots (local debug state) ----------
+data/quarantine/
+
 # ---------- Generated data ----------
 *.csv
 
@@ -64,10 +76,22 @@ data/agent_audit.jsonl
 data/scada_vault/.obsidian/
 data/scada_vault/Incidents/
 
-# ---------- Tooling (uncomment the next line if /tools/ should stay local) ----------
+# ---------- Local one-off diagnostic scripts ----------
+scripts/diagnose_and_fix_warns.sh
+
+# ---------- Runtime diagnostic bundles ----------
+# Keep:    docs/evidence/latest.json
+# Keep:    docs/evidence/verify-*.json
+# Ignore:  every other transient diagnostic dump written during a session.
+docs/evidence/warn-diagnostic-*.txt
+docs/evidence/remediation-code-dump.txt
+docs/evidence/sweep-after-verify-fix.txt
+docs/evidence/sweep-final-A.txt
+docs/evidence/sweep-final.txt
+docs/evidence/latest_live_test.txt
+
+# ---------- Tooling (uncomment if /tools/ should stay local) ----------
 # /tools/
 
 # ---------- Evidence artifacts: portfolio proof, KEEP TRACKED ----------
-!docs/evidence/*.jsonl_patch_backups/
-_patch_backups/
-_patch_backups/
+# (no global docs/ignore above, so nothing needs a negation rule here)

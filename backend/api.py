@@ -40,6 +40,22 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+# ---------------------------------------------------------------------------
+# EXTERNAL REMEDIATION API INTEGRATION
+# ---------------------------------------------------------------------------
+try:
+    from remediation_api import (
+        router as remediation_api_router,
+        resolve_engine as remediation_resolve_engine,
+        set_agent_provider as remediation_set_agent_provider,
+    )
+    _REMEDIATION_API_AVAILABLE = True
+except ImportError as e:
+    print(f"[API] WARNING: Failed to import remediation_api: {e}")
+    _REMEDIATION_API_AVAILABLE = False
+    remediation_api_router = None
+
 from pydantic import BaseModel
 
 try:
@@ -47,15 +63,18 @@ try:
 except Exception:
     ModbusTcpClient = None
 
+
 # -----------------------------------------------------------------------------
-# Path setup: make `backend/` and `models/` importable no matter how we run
+# Path setup: make `backend/`, `models/`, and project root importable
 # -----------------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent          # .../backend
 PROJECT_ROOT = BASE_DIR.parent                       # .../car-factory-electrical-data
 MODELS_DIR = PROJECT_ROOT / "models"                 # contains industrial_agent/
 
-for path_entry in (str(BASE_DIR), str(MODELS_DIR)):
+# FIX 3a: Add PROJECT_ROOT to sys.path so top-level modules such as
+# obsidian_bridge.py and database.py resolve reliably.
+for path_entry in (str(BASE_DIR), str(MODELS_DIR), str(PROJECT_ROOT)):
     if path_entry not in sys.path:
         sys.path.insert(0, path_entry)
 
@@ -129,6 +148,24 @@ REMEDIATION_POLICY_PATH = os.environ.get(
 )
 
 REMEDIATION_HISTORY_MAX = 500
+
+
+# -----------------------------------------------------------------------------
+# Small helpers
+# -----------------------------------------------------------------------------
+
+def _enum_value(obj: Any, default: Any = None) -> Any:
+    """
+    Safely extract the ``.value`` of an enum-like object.
+
+    If ``obj`` is ``None``, returns ``default``. If ``obj`` has no
+    ``.value`` attribute (e.g. it is already a plain string), returns
+    ``obj`` unchanged. This keeps endpoint code crash-proof against
+    future refactors that may replace enums with literal strings.
+    """
+    if obj is None:
+        return default
+    return getattr(obj, "value", obj)
 
 
 # -----------------------------------------------------------------------------
@@ -234,6 +271,41 @@ def load_ai_engine() -> Optional[Any]:
         return None
 
 
+def _warm_ai_engine(engine: Optional[Any]) -> None:
+    """
+    Prime the local LLM so the first live fault does not pay the full
+    cold-start inference penalty.
+
+    This is deliberately non-fatal. If warm-up fails, the API still starts.
+    """
+    if engine is None:
+        return
+
+    llm = getattr(engine, "llm", None)
+    if llm is None:
+        return
+
+    try:
+        if hasattr(llm, "create_chat_completion"):
+            llm.create_chat_completion(
+                messages=[
+                    {"role": "user", "content": "Reply with the single word: ready"}
+                ],
+                max_tokens=1,
+                temperature=0.0,
+            )
+        else:
+            llm(
+                "Reply with the single word: ready",
+                max_new_tokens=1,
+                temperature=0.0,
+            )
+
+        print("[API] AI engine warm-up completed.")
+    except Exception as e:
+        print(f"[API] AI engine warm-up skipped: {e}")
+
+
 # -----------------------------------------------------------------------------
 # Modbus system status reader
 # -----------------------------------------------------------------------------
@@ -243,10 +315,15 @@ def read_modbus_system_status_sync() -> Optional[Dict[str, Any]]:
     Read HR[120] system status word from the PLC simulator.
 
     Returns None if Modbus is unavailable.
+
+    FIX: The client is now always closed, even when ``connect()``
+    returns False. Previously the socket object was created but never
+    released on the connect-failure path.
     """
     if ModbusTcpClient is None:
         return None
 
+    client = None
     try:
         client = ModbusTcpClient(host=MODBUS_HOST, port=MODBUS_PORT, timeout=1)
 
@@ -287,6 +364,7 @@ def read_modbus_system_status_sync() -> Optional[Dict[str, Any]]:
 
 agent: Optional[IndustrialCognitiveAgent] = None
 agent_task: Optional[asyncio.Task] = None
+ai_engine_instance: Optional[Any] = None
 
 system_status: Dict[str, Any] = {
     "estop_active": False,
@@ -297,7 +375,13 @@ system_status: Dict[str, Any] = {
 
 
 async def refresh_system_status() -> None:
-    """Refresh global system status from Modbus (non-blocking)."""
+    """
+    Refresh global system status from Modbus (non-blocking).
+
+    FIX: also mirrors the fresh value into ``app.state.system_status``
+    so ``/api/health`` and any other reader of ``app.state`` do not
+    serve a startup-time snapshot.
+    """
     global system_status
 
     status = await asyncio.to_thread(read_modbus_system_status_sync)
@@ -309,6 +393,14 @@ async def refresh_system_status() -> None:
             **system_status,
             "source": f"{system_status.get('source', 'unknown')}-stale",
         }
+
+    # Keep app.state in sync for consumers that read it (e.g. /api/health).
+    try:
+        if app is not None:
+            app.state.system_status = system_status
+    except Exception:
+        # ``app`` may not be bound yet during very early startup; ignore.
+        pass
 
 
 async def collect_equipment_data() -> Dict[str, Dict[str, Any]]:
@@ -345,6 +437,7 @@ async def agent_background_loop() -> None:
                     # Defensive: immune to future agent refactors that may
                     # rename/remove _latest_stats
                     stats_payload = getattr(agent, "_latest_stats", None) or {}
+
                     # Every 5 cycles (~5 seconds), fetch 24-hour statistics
                     if stats_cycle % 5 == 1 or not stats_payload:
                         stats_payload = {
@@ -355,7 +448,10 @@ async def agent_background_loop() -> None:
                         }
 
                     await asyncio.to_thread(
-                        agent.ingest_data, equipment_data, system_status, stats_payload
+                        agent.ingest_data,
+                        equipment_data,
+                        system_status,
+                        stats_payload,
                     )
 
         except asyncio.CancelledError:
@@ -373,7 +469,7 @@ async def agent_background_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start and stop background services."""
-    global agent, agent_task
+    global agent, agent_task, ai_engine_instance
 
     print("[API] NEXUS SCADA Backend starting...")
     print(f"[API] Auth mode: {'ENABLED' if AUTH_ENABLED else 'DISABLED (dev mode)'}")
@@ -384,29 +480,44 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[API] Startup cleanup skipped or failed: {e}")
 
-    ai_engine = await asyncio.to_thread(load_ai_engine)
+    # Load and warm the local AI engine.
+    ai_engine_instance = await asyncio.to_thread(load_ai_engine)
+    await asyncio.to_thread(_warm_ai_engine, ai_engine_instance)
 
     agent = IndustrialCognitiveAgent(
         config=AgentConfig(),
-        ai_engine=ai_engine,
+        ai_engine=ai_engine_instance,
         command_callback=None,
     )
 
+    # FIX 3c: Force the agent onto the canonical data/scada.db singleton.
+    # This ensures alarm_events persistence writes to the same database the
+    # verifier and API read.
+    agent.db = db
+
     # ALARM-SINK WIRING: persist HIGH/CRITICAL findings to alarm_events.
+    # OBSIDIAN-HANDLE-WIRING: pass the obsidian bridge module itself.
     try:
-        from industrial_agent.remediation_hook import set_alarm_sink
+        from industrial_agent.remediation_hook import (
+            set_alarm_sink,
+            set_obsidian_handle,
+        )
+
         set_alarm_sink(db)
-        # OBSIDIAN-HANDLE-WIRING: pass the obsidian bridge module itself —
-        # it exposes the module-level append_remediation_section(...) the
-        # engine looks for via hasattr(...).
-        import obsidian_bridge as _ob
-        set_obsidian_handle(_ob)
-        print("[API] alarm_events sink wired into remediation hook")
+
+        try:
+            import obsidian_bridge as _ob
+            set_obsidian_handle(_ob)
+            print("[API] alarm_events sink and obsidian handle wired into remediation hook")
+        except ImportError:
+            print("[API] WARNING: obsidian_bridge not found. Skipping handle wiring.")
+
     except Exception as _sink_err:
         print(f"[API] alarm sink wiring failed: {_sink_err}")
 
     app.state.agent = agent
     app.state.system_status = system_status
+    app.state.ai_engine = ai_engine_instance
 
     agent_task = asyncio.create_task(agent_background_loop())
 
@@ -484,13 +595,27 @@ def get_remediation_engine() -> Optional[Any]:
     """
     Return the agent's remediation engine if it has been attached.
 
-    Remediation is an optional capability. When the engine is missing
-    the API reports ``available: false`` instead of failing.
+    FIX 3b: Self-healing accessor.
+    If the attribute is not yet set (probe sets mode BEFORE the first
+    finding), resolve the engine lazily through the hook's ensure_engine —
+    the same accessor the working hook path uses. This removes the
+    "Remediation engine not initialized." inconsistency.
     """
     agent_obj = getattr(app.state, "agent", None)
     if agent_obj is None:
         return None
-    return getattr(agent_obj, "remediation_engine", None)
+
+    engine = getattr(agent_obj, "remediation_engine", None)
+    if engine is not None:
+        return engine
+
+    try:
+        from industrial_agent.remediation_hook import ensure_engine
+        engine = ensure_engine(agent_obj)
+        return engine
+    except Exception as e:
+        print(f"[API] remediation engine lazy-init failed: {e}")
+        return None
 
 
 # -----------------------------------------------------------------------------
@@ -513,14 +638,37 @@ async def root():
 async def health_check():
     agent_obj = getattr(app.state, "agent", None)
 
+    # WARN-FIX 1: Expose model_path from AI engine.
+    engine = getattr(app.state, "ai_engine", None) or ai_engine_instance
+    model_path_str = ""
+    if engine is not None:
+        mp = getattr(engine, "model_path", None)
+        if mp:
+            model_path_str = str(mp)
+
+    # Defensive LLM availability check.
+    llm_available = False
+    if agent_obj is not None:
+        reasoner = getattr(agent_obj, "llm_reasoner", None)
+        if reasoner is not None and hasattr(reasoner, "available"):
+            try:
+                llm_available = bool(reasoner.available())
+            except Exception:
+                llm_available = False
+
+    # FIX: read the *live* global rather than a possibly stale app.state
+    # snapshot taken during startup.
+    live_status = getattr(app.state, "system_status", None) or system_status
+
     return {
         "status": "healthy",
         "database": "sqlite",
         "agent": "active" if agent_obj is not None else "not_started",
-        "agent_state": agent_obj.state.value if agent_obj is not None else None,
-        "operating_mode": agent_obj.mode.value if agent_obj is not None else None,
-        "llm_available": agent_obj.llm_reasoner.available() if agent_obj is not None else False,
-        "system_status": getattr(app.state, "system_status", system_status),
+        "agent_state": _enum_value(getattr(agent_obj, "state", None)),
+        "operating_mode": _enum_value(getattr(agent_obj, "mode", None)),
+        "llm_available": llm_available,
+        "model_path": model_path_str,
+        "system_status": live_status,
         "remediation_available": get_remediation_engine() is not None,
         "timestamp": datetime.now().isoformat(),
     }
@@ -659,7 +807,29 @@ async def cleanup_data(days: int = 30):
 async def get_agent_status():
     """Full agent dashboard summary for HMI/Streamlit."""
     agent_obj = get_agent()
-    return agent_obj.get_dashboard_summary()
+
+    try:
+        summary = agent_obj.get_dashboard_summary()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to build agent dashboard summary: {type(e).__name__}: {e}",
+        )
+
+    # WARN-FIX 2: Add vault_path to agent status.
+    try:
+        import obsidian_bridge as _ob
+
+        if hasattr(_ob, "VAULT_DIR"):
+            summary["vault_path"] = str(_ob.VAULT_DIR)
+        elif hasattr(_ob, "vault_dir"):
+            summary["vault_path"] = str(_ob.vault_dir)
+        else:
+            summary["vault_path"] = str(PROJECT_ROOT / "data" / "scada_vault")
+    except ImportError:
+        summary["vault_path"] = str(PROJECT_ROOT / "data" / "scada_vault")
+
+    return summary
 
 
 @app.get("/api/agent/operator-message")
@@ -668,8 +838,8 @@ async def get_agent_operator_message():
     agent_obj = get_agent()
     return {
         "message": agent_obj.get_operator_message(),
-        "system_state": agent_obj.state.value,
-        "operating_mode": agent_obj.mode.value,
+        "system_state": _enum_value(getattr(agent_obj, "state", None)),
+        "operating_mode": _enum_value(getattr(agent_obj, "mode", None)),
     }
 
 
@@ -689,7 +859,7 @@ async def set_operator_presence(present: bool):
 
     return {
         "operator_present": agent_obj.operator_present,
-        "mode": agent_obj.mode.value,
+        "mode": _enum_value(getattr(agent_obj, "mode", None)),
     }
 
 
@@ -739,6 +909,78 @@ class RemediationModeRequest(BaseModel):
     mode: str
 
 
+def _policy_mode(policy: Any) -> str:
+    mode = getattr(policy, "mode", None)
+    if mode:
+        return str(mode)
+
+    raw = getattr(policy, "raw", None)
+    if isinstance(raw, dict):
+        return str(raw.get("mode", DEFAULT_REMEDIATION_MODE))
+
+    return DEFAULT_REMEDIATION_MODE
+
+
+def _policy_version(policy: Any) -> Optional[str]:
+    version = getattr(policy, "version", None)
+    if version:
+        return str(version)
+
+    raw = getattr(policy, "raw", None)
+    if isinstance(raw, dict):
+        v = raw.get("version")
+        return str(v) if v is not None else None
+
+    return None
+
+
+def _policy_allowed_actions(policy: Any) -> List[str]:
+    allowed = getattr(policy, "allowed_actions", None)
+    if isinstance(allowed, dict):
+        return list(allowed.keys())
+
+    raw = getattr(policy, "raw", None)
+    if isinstance(raw, dict):
+        allowed_raw = raw.get("allowed_actions", {})
+        if isinstance(allowed_raw, dict):
+            return list(allowed_raw.keys())
+
+    return []
+
+
+def _policy_forbidden_actions(policy: Any) -> List[str]:
+    forbidden = getattr(policy, "forbidden_actions", None)
+    if isinstance(forbidden, (list, tuple, set)):
+        return [str(x) for x in forbidden]
+
+    raw = getattr(policy, "raw", None)
+    if isinstance(raw, dict):
+        forbidden_raw = raw.get("forbidden_actions", [])
+        if isinstance(forbidden_raw, (list, tuple, set)):
+            return [str(x) for x in forbidden_raw]
+
+    return []
+
+
+def _engine_has_plc_command_path(engine: Any) -> bool:
+    if engine is None:
+        return False
+
+    if hasattr(engine, "can_command_plc"):
+        try:
+            return bool(engine.can_command_plc())
+        except Exception:
+            pass
+
+    if getattr(engine, "client", None) is not None:
+        return True
+
+    if getattr(engine, "_direct_client", None) is not None:
+        return True
+
+    return False
+
+
 @remediation_router.get("/status")
 async def remediation_status():
     """
@@ -757,16 +999,21 @@ async def remediation_status():
             "policy_version": None,
             "allowed_actions": [],
             "forbidden_actions": [],
+            "has_plc_command_path": False,
+            "has_obsidian_bridge": False,
             "reason": "Remediation engine not initialized.",
         }
 
     policy = getattr(engine, "policy", None)
+
     return {
         "available": True,
-        "mode": getattr(policy, "mode", DEFAULT_REMEDIATION_MODE),
-        "policy_version": getattr(policy, "version", None),
-        "allowed_actions": list(getattr(policy, "allowed_actions", {}).keys()),
-        "forbidden_actions": list(getattr(policy, "forbidden_actions", [])),
+        "mode": _policy_mode(policy),
+        "policy_version": _policy_version(policy),
+        "allowed_actions": _policy_allowed_actions(policy),
+        "forbidden_actions": _policy_forbidden_actions(policy),
+        "has_plc_command_path": _engine_has_plc_command_path(engine),
+        "has_obsidian_bridge": getattr(engine, "obsidian", None) is not None,
     }
 
 
@@ -799,22 +1046,68 @@ async def set_remediation_mode(req: RemediationModeRequest):
         }
 
     ok = bool(engine.set_mode(requested))
+    policy = getattr(engine, "policy", None)
+    applied_mode = _policy_mode(policy)
 
     if ok:
         record_remediation_event(
             {
                 "event": "mode_change",
                 "requested_mode": requested,
-                "applied_mode": getattr(
-                    getattr(engine, "policy", None), "mode", requested
-                ),
+                "applied_mode": applied_mode,
             }
         )
 
     return {
         "ok": ok,
-        "mode": getattr(getattr(engine, "policy", None), "mode", requested),
+        "mode": applied_mode,
         "error": None if ok else f"Engine rejected mode: {requested}",
+    }
+
+
+@remediation_router.post("/reset", dependencies=[Depends(verify_api_key)])
+async def reset_remediation_guard():
+    """
+    Reset in-memory safety-guard rate/consecutive counters.
+
+    This is intended for live verification and operator-triggered resets.
+    It does not change policy, mode, or forbidden actions.
+    """
+    engine = get_remediation_engine()
+    if engine is None:
+        return {
+            "ok": False,
+            "error": "Remediation engine not initialized.",
+        }
+
+    fn = getattr(engine, "reset_guard_counters", None)
+    if not callable(fn):
+        return {
+            "ok": False,
+            "error": "reset_guard_counters not available on engine.",
+        }
+
+    try:
+        fn()
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"reset failed: {e}",
+        }
+
+    policy = getattr(engine, "policy", None)
+
+    record_remediation_event(
+        {
+            "event": "guard_counters_reset",
+            "mode": _policy_mode(policy),
+        }
+    )
+
+    return {
+        "ok": True,
+        "mode": _policy_mode(policy),
+        "reset": "guard_counters",
     }
 
 
@@ -906,8 +1199,52 @@ app.include_router(remediation_router)
 
 
 # -----------------------------------------------------------------------------
+# WARN-FIX 3: New Vault Status Endpoint
+# -----------------------------------------------------------------------------
+
+@app.get("/api/vault/status")
+async def vault_status():
+    """Report Obsidian vault presence + incident count for the verifier."""
+    vault_dir = PROJECT_ROOT / "data" / "scada_vault"
+    incidents_dir = vault_dir / "Incidents"
+
+    exists = vault_dir.is_dir() and incidents_dir.is_dir()
+    count = 0
+
+    if exists:
+        try:
+            count = len([
+                f for f in incidents_dir.iterdir()
+                if f.is_file() and f.suffix == ".md" and not f.name.startswith(".")
+            ])
+        except OSError:
+            count = 0
+
+    return {
+        "status": "ok" if exists else "degraded",
+        "vault_path": str(vault_dir) if exists else "",
+        "incidents_count": count,
+    }
+
+
+# -----------------------------------------------------------------------------
 # Run server
 # -----------------------------------------------------------------------------
+
+
+# Mount external router ONLY if available
+if _REMEDIATION_API_AVAILABLE and remediation_api_router is not None:
+    app.include_router(remediation_api_router)
+    print("[API] External remediation_api router mounted successfully.")
+    
+    # Wire agent provider for lazy loading
+    def _get_live_agent():
+        return getattr(app.state, "agent", None)
+    
+    if hasattr(remediation_set_agent_provider, '__call__'):
+         remediation_set_agent_provider(_get_live_agent)
+         print("[API] Agent provider wired to remediation_api.")
+
 
 if __name__ == "__main__":
     import uvicorn
@@ -918,12 +1255,3 @@ if __name__ == "__main__":
         port=8000,
         log_level="info",
     )
-# NEXUS_REMEDIATION_ROUTER_V1
-try:
-    from .remediation_api import router as _nexus_remediation_router
-    try:
-        app.include_router(_nexus_remediation_router)
-    except NameError:
-        application.include_router(_nexus_remediation_router)
-except Exception:
-    pass
