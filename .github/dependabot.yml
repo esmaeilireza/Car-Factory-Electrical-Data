@@ -16,9 +16,8 @@ updates:
       include: "scope"
     groups:
       # Group all patch and minor bumps into a single PR per week.
-      # Major bumps still arrive individually, because they need
-      # individual review. This reduces the weekly flood from seven
-      # PRs to one routine PR + any major-version PRs.
+      # Major bumps still arrive individually because they need
+      # individual review and a live verifier run before merge.
       python-minor-and-patch:
         patterns: ["*"]
         update-types:
@@ -36,6 +35,14 @@ updates:
           - "version-update:semver-minor"
           - "version-update:semver-major"
 
+      # websockets 17.x is backwards-incompatible with uvicorn 0.53
+      # (non-ASCII header handling changed upstream). The pip resolver
+      # fails when Dependabot bumps websockets to 17.x against uvicorn's
+      # pinned range. Block major bumps until uvicorn ships support.
+      - dependency-name: "websockets"
+        update-types:
+          - "version-update:semver-major"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -47,3 +54,15 @@ updates:
       - "ci"
     commit-message:
       prefix: "ci"
+    ignore:
+      # Actions v7 (checkout, setup-python) migrated to ESM for Node.js 24
+      # compatibility and changed cache-restore behaviour. Bumping both
+      # actions at once turned main red with no clear signal about which
+      # one broke. Block automatic major bumps until each is verified
+      # against the workflow manually.
+      - dependency-name: "actions/checkout"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "actions/setup-python"
+        update-types:
+          - "version-update:semver-major"

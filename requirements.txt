@@ -54,20 +54,26 @@ websockets==17.2
 # compiler. Install the pre-built wheel FIRST, then install this file:
 #
 #   1. Download the matching wheel:
-#      https://github.com/abetlen/llama-cpp-python/releases/tag/v0.3.35
+#      https://github.com/abetlen/llama-cpp-python/releases/tag/v0.3.36
 #      (Choose the wheel matching your Python version, e.g. cp312-win_amd64)
 #
 #   2. Install the wheel locally:
-#      pip install ./llama_cpp_python-0.3.35-cpXXX-cpXXX-win_amd64.whl
+#      pip install ./llama_cpp_python-0.3.36-cpXXX-cpXXX-win_amd64.whl
 #
 #   3. Then install the rest of the file:
 #      pip install -r requirements.txt
 #
-# Alternative if you have Visual Studio Build Tools:
+# If v0.3.36 has no prebuilt wheel for your Python version, fall back to
+# v0.3.35 by editing the pin above to llama-cpp-python==0.3.35 and
+# downloading that wheel instead:
+#      https://github.com/abetlen/llama-cpp-python/releases/tag/v0.3.35
+#
+# Alternative if you have Visual Studio Build Tools installed:
 #   pip install llama-cpp-python==0.3.36 \
 #     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 #
-# Why the pin is 0.3.35 and not newer: patch releases have historically
-# arrived without prebuilt Windows wheels. Bump only when a matching
-# wheel exists AND a full live verifier run has passed.
+# Rationale for the exact pin: CI does not install this package (see
+# requirements-ci.txt); the pin exists only for local developers. Bump
+# only when a matching wheel exists AND a full live verifier run has
+# passed.
 # -----------------------------------------------------------------------------
