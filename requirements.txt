@@ -15,7 +15,7 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
-llama-cpp-python==0.3.35
+llama-cpp-python==0.3.36
 MarkupSafe==3.0.4
 narwhals==2.26.0
 numpy==2.4.6
@@ -63,7 +63,7 @@ websockets==16.1.1
 #      pip install -r requirements.txt
 #
 # Alternative if you have Visual Studio Build Tools:
-#   pip install llama-cpp-python==0.3.35 \
+#   pip install llama-cpp-python==0.3.36 \
 #     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 #
 # Why the pin is 0.3.35 and not newer: patch releases have historically
