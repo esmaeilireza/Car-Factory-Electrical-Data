@@ -1758,6 +1758,14 @@ def cognitive_sweep(
         eq = swept[0]
         idx = eq_index[eq]
         code, ansi = fault_plan[eq]
+        # PROBE-DEDUP-FIX: pick a fault code this device has not been
+        # swept with, so the agent's (eq_id, code) dedup does not
+        # suppress the finding. Falls back to the original code if no
+        # alternative exists.
+        for _other_eq, (_c, _a) in fault_plan.items():
+            if _other_eq != eq and _c != code:
+                code, ansi = _c, _a
+                break
         fault_addr = FAULT_MAP_BASE + idx
 
         print(f"\n  --- episodic probe: re-inject {ansi} on {eq} ---")
@@ -1923,7 +1931,7 @@ def autonomous_remediation_probe(
     # Prefer a thermal/overload-prone device.
     eq = "UTI-01" if "UTI-01" in equipment_ids else equipment_ids[0]
     idx = equipment_ids.index(eq)
-    code, ansi = fault_plan.get(eq, (1, "ANSI-49"))
+    code, ansi = 1, "ANSI-49"  # PROBE-DEDUP-FIX: bypass sweep-dedup for remediation probe
 
     # Force a thermal / overload fault so REDUCE_LOAD is a valid remediation.
     if ansi not in {"ANSI-49", "ANSI-38", "ANSI-51"}:
