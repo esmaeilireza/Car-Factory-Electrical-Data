@@ -886,6 +886,76 @@ async def set_system_status(payload: Dict[str, Any]):
     return system_status
 
 
+@app.post(
+    "/api/agent/reset-edge-state",
+    dependencies=[Depends(verify_api_key)],
+)
+async def reset_edge_state():
+    """
+    Clear in-memory finding / remediation edge state on the agent.
+
+    REMEDIATION-STATE-CLEAR (2026-10-06):
+    The agent keeps per-(eq_id, code) edge flags so a single protective
+    trip does not re-fire the remediation hook every poll cycle. The
+    flags are supposed to clear when the agent next observes
+    ``trip_word == 0 AND not lockout`` for the affected device.
+
+    Under heavy LLM load (e.g. immediately after a six-device cognitive
+    sweep), the agent's poll cycle can lag by tens of seconds. The live
+    verifier's autonomous-remediation probe would then observe a stale
+    edge flag and never see REMEDIATION_DECISION -- a false WARN that
+    does not reflect any code defect.
+
+    This endpoint lets the verifier force a deterministic clean state
+    before injecting. It is NOT a safety control:
+
+      * it does not touch the plant,
+      * it does not touch the policy, mode, or forbidden-action list,
+      * it does not write to the audit chain,
+      * it does not affect PLC registers.
+
+    It only clears agent-local bookkeeping used for observability.
+    """
+    agent_obj = get_agent()
+
+    cleared_trip = 0
+    cleared_rem = 0
+
+    for attr in ("_trip_edges", "_remediation_triggered_edges"):
+        d = getattr(agent_obj, attr, None)
+        if isinstance(d, dict):
+            n = len(d)
+            d.clear()
+            if attr == "_trip_edges":
+                cleared_trip = n
+            else:
+                cleared_rem = n
+
+    # Also reset the LLM-edge throttle fingerprint, so the next urgent
+    # trip is not suppressed by a fingerprint left over from the sweep.
+    try:
+        agent_obj._last_llm_edge_fp = ""
+    except Exception:
+        pass
+
+    # Reset the LLM-call time so the next consult is not interval-blocked.
+    try:
+        agent_obj._last_llm_call = 0.0
+    except Exception:
+        pass
+
+    print(
+        "[API] reset-edge-state: "
+        f"cleared_trip={cleared_trip} cleared_remediation={cleared_rem}"
+    )
+
+    return {
+        "ok": True,
+        "cleared_trip_edges": cleared_trip,
+        "cleared_remediation_edges": cleared_rem,
+    }
+
+
 # -----------------------------------------------------------------------------
 # Remediation control endpoints
 # -----------------------------------------------------------------------------

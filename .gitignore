@@ -85,9 +85,7 @@ scripts/diagnose_and_fix_warns.sh
 # Ignore:  every other transient diagnostic dump written during a session.
 docs/evidence/warn-diagnostic-*.txt
 docs/evidence/remediation-code-dump.txt
-docs/evidence/sweep-after-verify-fix.txt
-docs/evidence/sweep-final-A.txt
-docs/evidence/sweep-final.txt
+docs/evidence/sweep-*.txt
 docs/evidence/latest_live_test.txt
 
 # ---------- Tooling (uncomment if /tools/ should stay local) ----------

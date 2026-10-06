@@ -2005,9 +2005,48 @@ def autonomous_remediation_probe(
     except Exception:
         pass
 
+    # ------------------------------------------------------------------
     # Reset plant before probe; do NOT reset during the probe.
+    #
+    # REMEDIATION-STATE-CLEAR-FIX (2026-10-06):
+    # The agent clears its in-memory `_remediation_triggered_edges` map
+    # only when it observes `trip_word == 0 AND not lockout` for the
+    # target device during a poll cycle. The agent loop is throttled by
+    # LLM inference (~30-90s per consult on CPU), so a 3s wait after the
+    # sweep cannot guarantee that the target's edge has cleared.
+    # 30s gives the agent time to tick twice even under LLM load.
+    # ------------------------------------------------------------------
     reset_and_restart(client, len(equipment_ids))
-    time.sleep(3.0)
+    time.sleep(30.0)
+
+    # ------------------------------------------------------------------
+    # REMEDIATION-STATE-CLEAR-FIX: force a clean agent edge state before
+    # the probe. This clears agent-local bookkeeping used for dedup.
+    # It is NOT a safety control: it does not touch the plant, the policy,
+    # the audit chain, or PLC registers. The endpoint is expected to
+    # return {"ok": true, "cleared_trip_edges": N, "cleared_remediation_edges": M}.
+    # If the endpoint is unavailable (older backend build), we proceed
+    # anyway — the 30s wait above is the fallback safety margin.
+    # ------------------------------------------------------------------
+    try:
+        r = requests.post(
+            f"{BACKEND}/api/agent/reset-edge-state",
+            timeout=5,
+        )
+        if r.ok:
+            body = r.json()
+            print(
+                f"  [STATE] cleared agent edges: "
+                f"trip={body.get('cleared_trip_edges')} "
+                f"remediation={body.get('cleared_remediation_edges')}"
+            )
+        else:
+            print(f"  [STATE] reset-edge-state HTTP {r.status_code} (proceeding anyway)")
+    except Exception as e:
+        print(f"  [STATE] reset-edge-state failed: {e} (proceeding anyway)")
+
+    # Short settle so the agent applies the reset before injection.
+    time.sleep(2.0)
 
     tailer = AuditTailer(AUDIT_AGENT)
     tailer.clear_buffer()

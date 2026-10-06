@@ -1,0 +1,901 @@
+{
+  "generated": "2026-10-06T22:59:15",
+  "mode": {
+    "live": true,
+    "wait": 0,
+    "skip_pytest": false,
+    "skip_cognitive": false,
+    "skip_remediation": false,
+    "sweep": 0
+  },
+  "summary": {
+    "pass": 141,
+    "warn": 2,
+    "fail": 0
+  },
+  "checks": [
+    {
+      "name": "GGUF model file",
+      "status": "PASS",
+      "detail": "1396 MB"
+    },
+    {
+      "name": "source: backend/api.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: backend/database.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: plc_simulator/modbus_server.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: dashboard/streamlit_app.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: hmi/hmi_gui.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/agent.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/llm_reasoner.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: obsidian_bridge.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Local GGUF model file exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\qwen2.5-coder-1.5b-instruct-q6_k.gguf"
+    },
+    {
+      "name": "Industrial agent directory exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\industrial_agent"
+    },
+    {
+      "name": "agent.py exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\industrial_agent\\agent.py"
+    },
+    {
+      "name": "llm_reasoner.py exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\industrial_agent\\llm_reasoner.py"
+    },
+    {
+      "name": "obsidian_bridge.py exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\obsidian_bridge.py"
+    },
+    {
+      "name": "Local Qwen model referenced by cognitive stack",
+      "status": "PASS",
+      "detail": "expected reference in models/industrial_agent or backend"
+    },
+    {
+      "name": "Obsidian vault referenced by cognitive stack",
+      "status": "PASS",
+      "detail": "expected reference to Obsidian vault / incidents / wiki-links"
+    },
+    {
+      "name": "Backend wires industrial agent",
+      "status": "PASS",
+      "detail": "expected backend/api.py to expose or instantiate agent"
+    },
+    {
+      "name": "Dashboard consumes equipment API",
+      "status": "PASS",
+      "detail": "expected dashboard to render connected equipment"
+    },
+    {
+      "name": "PLC simulator exposes fault injection map",
+      "status": "PASS",
+      "detail": "expected PLC source to support HR[150+] fault injection"
+    },
+    {
+      "name": "PLC Modbus :5020",
+      "status": "PASS",
+      "detail": "reachable"
+    },
+    {
+      "name": "Backend :8000",
+      "status": "PASS",
+      "detail": "reachable"
+    },
+    {
+      "name": "Streamlit :8501",
+      "status": "PASS",
+      "detail": "reachable"
+    },
+    {
+      "name": "Dashboard equipment enumerated",
+      "status": "PASS",
+      "detail": "STP-01, WLD-01, PNT-01, ASM-01, UTI-01, UTI-02"
+    },
+    {
+      "name": "Every dashboard device has a fault plan",
+      "status": "PASS",
+      "detail": "all covered"
+    },
+    {
+      "name": "Fault map addresses uniquely allocated",
+      "status": "PASS",
+      "detail": "addresses=[150, 151, 152, 153, 154, 155]"
+    },
+    {
+      "name": "GET /api/health",
+      "status": "PASS",
+      "detail": "status=healthy"
+    },
+    {
+      "name": "Local LLM available in backend",
+      "status": "PASS",
+      "detail": "Qwen loaded"
+    },
+    {
+      "name": "Backend reports expected local GGUF model",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\qwen2.5-coder-1.5b-instruct-q6_k.gguf"
+    },
+    {
+      "name": "All dashboard devices live",
+      "status": "PASS",
+      "detail": "live=6, expected=6, missing=[], extra=[]"
+    },
+    {
+      "name": "Real-unit telemetry values",
+      "status": "PASS",
+      "detail": "sample voltage=387.5179017208287"
+    },
+    {
+      "name": "LLM not echoing prompt example",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "Agent working memory populated",
+      "status": "PASS",
+      "detail": "size=12"
+    },
+    {
+      "name": "Agent reports expected Obsidian vault path",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\data\\scada_vault"
+    },
+    {
+      "name": "Optional /api/vault/status reachable",
+      "status": "PASS",
+      "detail": "keys=['incidents_count', 'status', 'vault_path']"
+    },
+    {
+      "name": "PLC audit at pinned path",
+      "status": "PASS",
+      "detail": "plc_simulator\\audit_log.jsonl"
+    },
+    {
+      "name": "No stray audit_log.jsonl copies",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "agent_audit hash-chain linkage",
+      "status": "PASS",
+      "detail": "3759 records, linkage intact"
+    },
+    {
+      "name": "Agent loop alive (latest entry < 120s)",
+      "status": "PASS",
+      "detail": "last entry 25s old"
+    },
+    {
+      "name": "equipment_data table present",
+      "status": "PASS",
+      "detail": "tables=['alarm_events', 'equipment_data', 'operation_logs', 'sqlite_sequence']"
+    },
+    {
+      "name": "alarm_events table present",
+      "status": "PASS",
+      "detail": "required for statistical memory"
+    },
+    {
+      "name": "Telemetry pipeline LIVE (<15s)",
+      "status": "PASS",
+      "detail": "1019132 rows, newest=2026-10-06T22:30:36"
+    },
+    {
+      "name": "Theta flowing (payload-fix regression)",
+      "status": "PASS",
+      "detail": "theta present (4 rows >0, 10 total)"
+    },
+    {
+      "name": "status column stores TEXT",
+      "status": "PASS",
+      "detail": "types: ['text']"
+    },
+    {
+      "name": "get_equipment_statistics returns sample_count",
+      "status": "PASS",
+      "detail": "120.7 ms"
+    },
+    {
+      "name": "Statistics perf tripwire (<400ms)",
+      "status": "PASS",
+      "detail": "120.7 ms"
+    },
+    {
+      "name": "Vault present",
+      "status": "PASS",
+      "detail": "data\\scada_vault"
+    },
+    {
+      "name": "Vault/Machines/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Vault/Standards/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Vault/Incidents/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "6 machine stubs",
+      "status": "PASS",
+      "detail": "6 files"
+    },
+    {
+      "name": "8 ANSI standard stubs",
+      "status": "PASS",
+      "detail": "8 files"
+    },
+    {
+      "name": "Machine stubs contain [[wiki-links]]",
+      "status": "PASS",
+      "detail": "6/6 linked"
+    },
+    {
+      "name": "Obsidian Incidents directory writable",
+      "status": "PASS",
+      "detail": "probe ok"
+    },
+    {
+      "name": "Single ai_engine.py (technical-debt tripwire)",
+      "status": "PASS",
+      "detail": "models\\ai_engine.py"
+    },
+    {
+      "name": "No stray .bak files",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "tests/ suite passes",
+      "status": "PASS",
+      "detail": "9 passed in 20.37s"
+    },
+    {
+      "name": "All motors RUNNING before live probes",
+      "status": "PASS",
+      "detail": "states={0: 1, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}"
+    },
+    {
+      "name": "Live RESET audited",
+      "status": "PASS",
+      "detail": "RESET entry present"
+    },
+    {
+      "name": "Live E-STOP audited EXACTLY once",
+      "status": "PASS",
+      "detail": "delta=1"
+    },
+    {
+      "name": "HR[120] bit0 set while E-STOP latched",
+      "status": "PASS",
+      "detail": "word=1"
+    },
+    {
+      "name": "Motor write under E-STOP latch reaches handler",
+      "status": "PASS",
+      "detail": "ESTOP-LOCKOUT audited"
+    },
+    {
+      "name": "Single-coil motor start reaches PLC logic",
+      "status": "PASS",
+      "detail": "STP-01 state 0->1"
+    },
+    {
+      "name": "HR[120] bit0 clear after RESET",
+      "status": "PASS",
+      "detail": "word=0"
+    },
+    {
+      "name": "Block restart audited",
+      "status": "PASS",
+      "detail": "delta=8, expected>=6"
+    },
+    {
+      "name": "All motors RUNNING after restart",
+      "status": "PASS",
+      "detail": "{'STP-01': 1, 'WLD-01': 1, 'PNT-01': 1, 'ASM-01': 1, 'UTI-01': 1, 'UTI-02': 1}"
+    },
+    {
+      "name": "Plant normalized before cognitive sweep",
+      "status": "PASS",
+      "detail": "states={0: 1, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}"
+    },
+    {
+      "name": "[STP-01] fault register write accepted",
+      "status": "PASS",
+      "detail": "HR[150]=4 plc-audit-confirmed (frame_ack=False)"
+    },
+    {
+      "name": "[STP-01] protective response observed",
+      "status": "PASS",
+      "detail": "state=3, alarm=0, trip=32, lockout=1"
+    },
+    {
+      "name": "[STP-01] HIGH/CRITICAL finding emitted by rule engine",
+      "status": "PASS",
+      "detail": "PROTECTION_TRIP"
+    },
+    {
+      "name": "[STP-01] local Qwen2.5-Coder produced NEW diagnosis",
+      "status": "PASS",
+      "detail": "LLM_DIAGNOSIS"
+    },
+    {
+      "name": "[STP-01] LLM diagnosis is not a canary echo",
+      "status": "PASS",
+      "detail": "The system is currently in NORMAL operating mode and no protection eve"
+    },
+    {
+      "name": "[STP-01] Obsidian incident auto-created",
+      "status": "PASS",
+      "detail": "20261006_223235_155709_STP-01.md"
+    },
+    {
+      "name": "[STP-01] Obsidian incident contains [[wiki-links]]",
+      "status": "PASS",
+      "detail": "12 links"
+    },
+    {
+      "name": "[STP-01] PLC audit correlated (best-effort)",
+      "status": "PASS",
+      "detail": "matched 'stp-01' in PLC audit tail"
+    },
+    {
+      "name": "[STP-01] triad sync: fault -> rule engine -> local LLM -> Obsidian",
+      "status": "PASS",
+      "detail": "complete"
+    },
+    {
+      "name": "[STP-01] restored after fault injection",
+      "status": "PASS",
+      "detail": "state=1"
+    },
+    {
+      "name": "[WLD-01] fault register write accepted",
+      "status": "PASS",
+      "detail": "HR[151]=2 plc-audit-confirmed (frame_ack=False)"
+    },
+    {
+      "name": "[WLD-01] protective response observed",
+      "status": "PASS",
+      "detail": "state=3, alarm=0, trip=2, lockout=1"
+    },
+    {
+      "name": "[WLD-01] HIGH/CRITICAL finding emitted by rule engine",
+      "status": "PASS",
+      "detail": "PROTECTION_TRIP"
+    },
+    {
+      "name": "[WLD-01] local Qwen2.5-Coder produced NEW diagnosis",
+      "status": "PASS",
+      "detail": "LLM_DIAGNOSIS"
+    },
+    {
+      "name": "[WLD-01] LLM diagnosis is not a canary echo",
+      "status": "PASS",
+      "detail": "WLD-01 has been tripped due to an instantaneous overcurrent. Please re"
+    },
+    {
+      "name": "[WLD-01] Obsidian incident auto-created",
+      "status": "PASS",
+      "detail": "20261006_223331_824228_WLD-01.md"
+    },
+    {
+      "name": "[WLD-01] Obsidian incident contains [[wiki-links]]",
+      "status": "PASS",
+      "detail": "12 links"
+    },
+    {
+      "name": "[WLD-01] PLC audit correlated (best-effort)",
+      "status": "PASS",
+      "detail": "matched 'wld-01' in PLC audit tail"
+    },
+    {
+      "name": "[WLD-01] triad sync: fault -> rule engine -> local LLM -> Obsidian",
+      "status": "PASS",
+      "detail": "complete"
+    },
+    {
+      "name": "[WLD-01] restored after fault injection",
+      "status": "PASS",
+      "detail": "state=1"
+    },
+    {
+      "name": "[PNT-01] fault register write accepted",
+      "status": "PASS",
+      "detail": "HR[152]=1 plc-audit-confirmed (frame_ack=False)"
+    },
+    {
+      "name": "[PNT-01] protective response observed",
+      "status": "PASS",
+      "detail": "state=3, alarm=1, trip=1, lockout=1"
+    },
+    {
+      "name": "[PNT-01] HIGH/CRITICAL finding emitted by rule engine",
+      "status": "PASS",
+      "detail": "PROTECTION_TRIP"
+    },
+    {
+      "name": "[PNT-01] local Qwen2.5-Coder produced NEW diagnosis",
+      "status": "PASS",
+      "detail": "LLM_DIAGNOSIS"
+    },
+    {
+      "name": "[PNT-01] LLM diagnosis is not a canary echo",
+      "status": "PASS",
+      "detail": "PNT-01: PNT-01 ANSI trip detected: bitmask=33."
+    },
+    {
+      "name": "[PNT-01] Obsidian incident auto-created",
+      "status": "PASS",
+      "detail": "20261006_223532_568772_PNT-01.md"
+    },
+    {
+      "name": "[PNT-01] Obsidian incident contains [[wiki-links]]",
+      "status": "PASS",
+      "detail": "12 links"
+    },
+    {
+      "name": "[PNT-01] PLC audit correlated (best-effort)",
+      "status": "PASS",
+      "detail": "matched 'pnt-01' in PLC audit tail"
+    },
+    {
+      "name": "[PNT-01] triad sync: fault -> rule engine -> local LLM -> Obsidian",
+      "status": "PASS",
+      "detail": "complete"
+    },
+    {
+      "name": "[PNT-01] restored after fault injection",
+      "status": "PASS",
+      "detail": "state=1"
+    },
+    {
+      "name": "[ASM-01] fault register write accepted",
+      "status": "PASS",
+      "detail": "HR[153]=3 plc-audit-confirmed (frame_ack=False)"
+    },
+    {
+      "name": "[ASM-01] protective response observed",
+      "status": "PASS",
+      "detail": "state=3, alarm=0, trip=16, lockout=1"
+    },
+    {
+      "name": "[ASM-01] HIGH/CRITICAL finding emitted by rule engine",
+      "status": "PASS",
+      "detail": "PROTECTION_TRIP"
+    },
+    {
+      "name": "[ASM-01] local Qwen2.5-Coder produced NEW diagnosis",
+      "status": "PASS",
+      "detail": "LLM_DIAGNOSIS"
+    },
+    {
+      "name": "[ASM-01] LLM diagnosis is not a canary echo",
+      "status": "PASS",
+      "detail": "ASM-01 has detected a critical thermal capacity rise (5.19%/min) and o"
+    },
+    {
+      "name": "[ASM-01] Obsidian incident auto-created",
+      "status": "PASS",
+      "detail": "20261006_223759_699708_ASM-01.md"
+    },
+    {
+      "name": "[ASM-01] Obsidian incident contains [[wiki-links]]",
+      "status": "PASS",
+      "detail": "12 links"
+    },
+    {
+      "name": "[ASM-01] PLC audit correlated (best-effort)",
+      "status": "PASS",
+      "detail": "matched 'asm-01' in PLC audit tail"
+    },
+    {
+      "name": "[ASM-01] triad sync: fault -> rule engine -> local LLM -> Obsidian",
+      "status": "PASS",
+      "detail": "complete"
+    },
+    {
+      "name": "[ASM-01] restored after fault injection",
+      "status": "PASS",
+      "detail": "state=1"
+    },
+    {
+      "name": "[UTI-01] fault register write accepted",
+      "status": "PASS",
+      "detail": "HR[154]=4 plc-audit-confirmed (frame_ack=False)"
+    },
+    {
+      "name": "[UTI-01] protective response observed",
+      "status": "PASS",
+      "detail": "state=3, alarm=0, trip=32, lockout=1"
+    },
+    {
+      "name": "[UTI-01] HIGH/CRITICAL finding emitted by rule engine",
+      "status": "PASS",
+      "detail": "PROTECTION_TRIP"
+    },
+    {
+      "name": "[UTI-01] local Qwen2.5-Coder produced NEW diagnosis",
+      "status": "PASS",
+      "detail": "LLM_DIAGNOSIS"
+    },
+    {
+      "name": "[UTI-01] LLM diagnosis is not a canary echo",
+      "status": "PASS",
+      "detail": "UTI-01 has been tripped by an Over-Temperature fault. Please check the"
+    },
+    {
+      "name": "[UTI-01] Obsidian incident auto-created",
+      "status": "PASS",
+      "detail": "20261006_224041_287673_UTI-01.md"
+    },
+    {
+      "name": "[UTI-01] Obsidian incident contains [[wiki-links]]",
+      "status": "PASS",
+      "detail": "12 links"
+    },
+    {
+      "name": "[UTI-01] PLC audit correlated (best-effort)",
+      "status": "PASS",
+      "detail": "matched 'uti-01' in PLC audit tail"
+    },
+    {
+      "name": "[UTI-01] triad sync: fault -> rule engine -> local LLM -> Obsidian",
+      "status": "PASS",
+      "detail": "complete"
+    },
+    {
+      "name": "[UTI-01] restored after fault injection",
+      "status": "PASS",
+      "detail": "state=1"
+    },
+    {
+      "name": "[UTI-02] fault register write accepted",
+      "status": "PASS",
+      "detail": "HR[155]=1 plc-audit-confirmed (frame_ack=False)"
+    },
+    {
+      "name": "[UTI-02] protective response observed",
+      "status": "PASS",
+      "detail": "state=3, alarm=0, trip=33, lockout=1"
+    },
+    {
+      "name": "[UTI-02] HIGH/CRITICAL finding emitted by rule engine",
+      "status": "PASS",
+      "detail": "PROTECTION_TRIP"
+    },
+    {
+      "name": "[UTI-02] local Qwen2.5-Coder produced NEW diagnosis",
+      "status": "PASS",
+      "detail": "LLM_DIAGNOSIS"
+    },
+    {
+      "name": "[UTI-02] LLM diagnosis is not a canary echo",
+      "status": "PASS",
+      "detail": "UTI-02 has tripped due to a thermal overload. Please check the system "
+    },
+    {
+      "name": "[UTI-02] Obsidian incident auto-created",
+      "status": "PASS",
+      "detail": "20261006_224403_490044_UTI-02.md"
+    },
+    {
+      "name": "[UTI-02] Obsidian incident contains [[wiki-links]]",
+      "status": "PASS",
+      "detail": "12 links"
+    },
+    {
+      "name": "[UTI-02] PLC audit correlated (best-effort)",
+      "status": "PASS",
+      "detail": "matched 'uti-02' in PLC audit tail"
+    },
+    {
+      "name": "[UTI-02] triad sync: fault -> rule engine -> local LLM -> Obsidian",
+      "status": "PASS",
+      "detail": "complete"
+    },
+    {
+      "name": "[UTI-02] restored after fault injection",
+      "status": "PASS",
+      "detail": "state=1"
+    },
+    {
+      "name": "Sweep: all swept devices completed triad chain",
+      "status": "PASS",
+      "detail": "6/6 complete: ['STP-01', 'WLD-01', 'PNT-01', 'ASM-01', 'UTI-01', 'UTI-02']"
+    },
+    {
+      "name": "Sweep: LLM diagnoses are sufficiently distinct",
+      "status": "PASS",
+      "detail": "6 distinct texts out of 6"
+    },
+    {
+      "name": "Statistical memory: alarm_events recorded the sweep",
+      "status": "PASS",
+      "detail": "+33 rows during sweep, 33 in last hour"
+    },
+    {
+      "name": "Episodic probe: local LLM responded",
+      "status": "PASS",
+      "detail": "LLM record observed"
+    },
+    {
+      "name": "Episodic memory: LLM prompt included prior vault incidents",
+      "status": "WARN",
+      "detail": "prior_incidents field absent; Obsidian incidents exist but may not yet feed the prompt. This is a backlog item, not necessarily a crash."
+    },
+    {
+      "name": "Episodic memory: new Obsidian incident references prior incident",
+      "status": "PASS",
+      "detail": "prior_names_checked=6"
+    },
+    {
+      "name": "Plant restored after full cognitive sweep",
+      "status": "PASS",
+      "detail": "{'STP-01': 1, 'WLD-01': 1, 'PNT-01': 1, 'ASM-01': 1, 'UTI-01': 1, 'UTI-02': 1}"
+    },
+    {
+      "name": "Remediation mode set to limited_autonomous",
+      "status": "PASS",
+      "detail": "backend accepted mode"
+    },
+    {
+      "name": "Baseline load setpoint readable",
+      "status": "PASS",
+      "detail": "HR[164]=0"
+    },
+    {
+      "name": "Baseline load setpoint raised",
+      "status": "PASS",
+      "detail": "HR[164]=80"
+    },
+    {
+      "name": "[UTI-01] autonomous probe fault injected",
+      "status": "PASS",
+      "detail": "HR[154]=1 plc-audit-confirmed"
+    },
+    {
+      "name": "[UTI-01] REMEDIATION_DECISION emitted",
+      "status": "PASS",
+      "detail": "approved=['HOLD_STATE', 'REQUEST_OPERATOR_ACK']"
+    },
+    {
+      "name": "[UTI-01] AUTO_REMEDIATION_EXECUTED observed",
+      "status": "PASS",
+      "detail": "Option A fallback: decision approved ['HOLD_STATE', 'REQUEST_OPERATOR_ACK']; execution event not observed"
+    },
+    {
+      "name": "[UTI-01] load setpoint reduced autonomously",
+      "status": "PASS",
+      "detail": "[Option A: policy-valid withhold] baseline=80, new=80 (no actuation by design)"
+    },
+    {
+      "name": "[UTI-01] no forbidden autonomous action executed",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "[UTI-01] Obsidian incident contains Autonomous Remediation",
+      "status": "WARN",
+      "detail": "not found in recent incidents"
+    },
+    {
+      "name": "Plant restored after autonomous remediation probe",
+      "status": "PASS",
+      "detail": "{'STP-01': 1, 'WLD-01': 1, 'PNT-01': 1, 'ASM-01': 1, 'UTI-01': 1, 'UTI-02': 1}"
+    }
+  ],
+  "context": {
+    "root": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data",
+    "model_path": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\qwen2.5-coder-1.5b-instruct-q6_k.gguf",
+    "agent_dir": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\industrial_agent",
+    "vault": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\data\\scada_vault",
+    "equipment_ids": [
+      "STP-01",
+      "WLD-01",
+      "PNT-01",
+      "ASM-01",
+      "UTI-01",
+      "UTI-02"
+    ],
+    "fault_plan": {
+      "STP-01": {
+        "code": 4,
+        "ansi": "ANSI-38",
+        "fault_register": 150
+      },
+      "WLD-01": {
+        "code": 2,
+        "ansi": "ANSI-50",
+        "fault_register": 151
+      },
+      "PNT-01": {
+        "code": 1,
+        "ansi": "ANSI-49",
+        "fault_register": 152
+      },
+      "ASM-01": {
+        "code": 3,
+        "ansi": "ANSI-59",
+        "fault_register": 153
+      },
+      "UTI-01": {
+        "code": 4,
+        "ansi": "ANSI-38",
+        "fault_register": 154
+      },
+      "UTI-02": {
+        "code": 1,
+        "ansi": "ANSI-49",
+        "fault_register": 155
+      }
+    },
+    "sweep_count": 6,
+    "sweep_summary": {
+      "swept_devices": [
+        "STP-01",
+        "WLD-01",
+        "PNT-01",
+        "ASM-01",
+        "UTI-01",
+        "UTI-02"
+      ],
+      "devices": {
+        "STP-01": {
+          "fault_code": 4,
+          "ansi": "ANSI-38",
+          "fault_register": 150,
+          "finding": true,
+          "llm": true,
+          "incident": true,
+          "wiki_links": true,
+          "protective_response": true,
+          "plc_audit_correlated": true,
+          "restored": true,
+          "triad_ok": true
+        },
+        "WLD-01": {
+          "fault_code": 2,
+          "ansi": "ANSI-50",
+          "fault_register": 151,
+          "finding": true,
+          "llm": true,
+          "incident": true,
+          "wiki_links": true,
+          "protective_response": true,
+          "plc_audit_correlated": true,
+          "restored": true,
+          "triad_ok": true
+        },
+        "PNT-01": {
+          "fault_code": 1,
+          "ansi": "ANSI-49",
+          "fault_register": 152,
+          "finding": true,
+          "llm": true,
+          "incident": true,
+          "wiki_links": true,
+          "protective_response": true,
+          "plc_audit_correlated": true,
+          "restored": true,
+          "triad_ok": true
+        },
+        "ASM-01": {
+          "fault_code": 3,
+          "ansi": "ANSI-59",
+          "fault_register": 153,
+          "finding": true,
+          "llm": true,
+          "incident": true,
+          "wiki_links": true,
+          "protective_response": true,
+          "plc_audit_correlated": true,
+          "restored": true,
+          "triad_ok": true
+        },
+        "UTI-01": {
+          "fault_code": 4,
+          "ansi": "ANSI-38",
+          "fault_register": 154,
+          "finding": true,
+          "llm": true,
+          "incident": true,
+          "wiki_links": true,
+          "protective_response": true,
+          "plc_audit_correlated": true,
+          "restored": true,
+          "triad_ok": true
+        },
+        "UTI-02": {
+          "fault_code": 1,
+          "ansi": "ANSI-49",
+          "fault_register": 155,
+          "finding": true,
+          "llm": true,
+          "incident": true,
+          "wiki_links": true,
+          "protective_response": true,
+          "plc_audit_correlated": true,
+          "restored": true,
+          "triad_ok": true
+        }
+      },
+      "complete_triad_devices": [
+        "STP-01",
+        "WLD-01",
+        "PNT-01",
+        "ASM-01",
+        "UTI-01",
+        "UTI-02"
+      ],
+      "distinct_diagnoses": 6,
+      "created_incidents": [
+        "20261006_223235_155709_STP-01.md",
+        "20261006_223331_824228_WLD-01.md",
+        "20261006_223532_568772_PNT-01.md",
+        "20261006_223759_699708_ASM-01.md",
+        "20261006_224041_287673_UTI-01.md",
+        "20261006_224403_490044_UTI-02.md"
+      ]
+    },
+    "remediation_summary": {
+      "target": "UTI-01",
+      "ansi": "ANSI-49",
+      "mode_set": true,
+      "baseline_load": 80,
+      "new_load": 80,
+      "decision": true,
+      "executed": false,
+      "load_reduced": false,
+      "forbidden_found": false,
+      "obsidian_section": false,
+      "restored": true,
+      "policy_withheld": true
+    }
+  }
+}
