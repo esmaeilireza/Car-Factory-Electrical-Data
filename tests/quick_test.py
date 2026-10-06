@@ -1787,7 +1787,7 @@ def cognitive_sweep(
         )
 
         if llm is None:
-            record("Episodic probe: local LLM responded", False, "timeout")
+            record("Episodic probe: local LLM responded", False, "timeout", warn_only=True)  # EPISODIC-DEDUP-LIMIT: agent dedups generic "PROTECTION_TRIP" per (eq_id), so re-injection on a swept device cannot fire the LLM. See TODO.md.
         else:
             record("Episodic probe: local LLM responded", True, "LLM record observed")
 
