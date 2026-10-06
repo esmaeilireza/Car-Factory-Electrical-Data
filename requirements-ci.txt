@@ -12,7 +12,7 @@ certifi==2026.7.22
 charset-normalizer==3.5.2
 click==8.5.0
 diskcache==5.6.3
-fastapi==0.141.1
+fastapi==0.142.2
 h11==0.16.0
 httptools==0.8.0
 idna==3.20
@@ -22,7 +22,7 @@ jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 MarkupSafe==3.0.4
 narwhals==2.26.0
-numpy==2.4.6
+numpy==2.5.3
 packaging==26.3
 pandas==3.0.6
 pillow==12.3.0
@@ -30,7 +30,7 @@ plotly==7.1.0
 protobuf==7.36.2
 pyarrow==25.0.1
 pydantic==2.13.5
-pydantic_core==2.46.5
+pydantic_core==2.49.0
 pydeck==0.9.3
 pymodbus==3.6.9
 python-dateutil==2.9.0.post0
@@ -39,13 +39,13 @@ referencing==0.37.0
 requests==2.34.2
 rpds-py==2026.6.3
 six==1.17.0
-starlette==1.6.0
-streamlit==1.64.0
+starlette==1.7.0
+streamlit==1.65.0
 toml==0.10.2
 typing-inspection==0.4.4
 typing_extensions==4.16.0
 tzdata==2026.5
 urllib3==2.8.0
-uvicorn==0.53.0
+uvicorn==0.54.0
 watchdog==6.0.0
 websockets==16.1.1
