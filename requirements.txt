@@ -46,24 +46,27 @@ uvicorn==0.53.0
 watchdog==6.0.0
 websockets==16.1.1
 
-# =============================================================================
-# ??  MANUAL STEP REQUIRED FOR llama-cpp-python
-# =============================================================================
-# The line above pins the version for documentation/freeze purposes only.
-# pip CANNOT install llama-cpp-python from PyPI on Windows without a C++ compiler.
+# -----------------------------------------------------------------------------
+# Manual step required: llama-cpp-python
+# -----------------------------------------------------------------------------
+# pip cannot build llama-cpp-python from source on Windows without a C++
+# compiler. Install the pre-built wheel FIRST, then install this file:
 #
-# BEFORE running `pip install -r requirements.txt`, you must install the wheel manually:
-#
-#   1. Download the matching wheel from:
+#   1. Download the matching wheel:
 #      https://github.com/abetlen/llama-cpp-python/releases/tag/v0.3.35
-#      (Choose: llama_cpp_python-0.3.35-cpXXX-cpXXX-win_amd64.whl matching your Python version)
+#      (Choose the wheel matching your Python version, e.g. cp312-win_amd64)
 #
-#   2. Install it locally:
+#   2. Install the wheel locally:
 #      pip install ./llama_cpp_python-0.3.35-cpXXX-cpXXX-win_amd64.whl
 #
-#   3. THEN install the rest of this file:
+#   3. Then install the rest of the file:
 #      pip install -r requirements.txt
 #
-# Alternative (if you have Visual Studio Build Tools installed):
-#   pip install llama-cpp-python==0.3.35 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-# =============================================================================
+# Alternative if you have Visual Studio Build Tools:
+#   pip install llama-cpp-python==0.3.35 \
+#     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+#
+# Why the pin is 0.3.35 and not newer: patch releases have historically
+# arrived without prebuilt Windows wheels. Bump only when a matching
+# wheel exists AND a full live verifier run has passed.
+# -----------------------------------------------------------------------------
