@@ -1538,13 +1538,16 @@ def cognitive_sweep(
         )
 
         # Wait for deterministic rule-engine HIGH/CRITICAL finding for this device.
+        # PATCH-1 (2026-10-06): widened rule-engine wait window.
+        # Rationale: UTI-02 timed out at 180s while its finding was already
+        # present in the audit log. 300s covers slow CPU + sweep-queue lag.
         fnd = tailer.wait_for(
             lambda rec, pay, _eq=eq: (
                 rec.get("event") == "FINDING"
                 and str(pay.get("eq_id", "")) == _eq
                 and str(pay.get("severity", "")).upper() in ("HIGH", "CRITICAL")
             ),
-            timeout_s=180,
+            timeout_s=300,
         )
 
         device_summary["finding"] = fnd is not None
@@ -1604,6 +1607,13 @@ def cognitive_sweep(
             if not inc_dir.is_dir():
                 return None, ""
 
+            # PATCH-2 (2026-10-06): require the incident's front-matter to name
+            # THIS device. The old contains_any(needles) also accepted files
+            # that merely shared the ANSI code, causing UTI-01 to pick up
+            # STP-01's file and UTI-02 to pick up PNT-01's file.
+            needle_primary   = f"equipment: [[{eq}]]"
+            needle_secondary = f"primary_equipment: {eq}"
+
             for p in inc_dir.glob("*.md"):
                 if p.name in seen_incidents:
                     continue
@@ -1611,7 +1621,7 @@ def cognitive_sweep(
                     continue
 
                 body = read_text_safe(p)
-                if contains_any(body, needles):  # MATCH-FIX: SYSTEM-level incidents may not name the injecting device
+                if needle_primary in body or needle_secondary in body:
                     seen_incidents.add(p.name)
                     return p, body
 
@@ -2158,7 +2168,9 @@ def autonomous_remediation_probe(
 
         for p in candidates:
             body = read_text_safe(p)
-            if eq in body and "Autonomous Remediation" in body:
+            # PATCH-3 (2026-10-06): require the exact wiki-link, not a bare
+            # substring, so "UTI-01" cannot accidentally match "UTI-0100".
+            if f"[[{eq}]]" in body and "Autonomous Remediation" in body:
                 matched_incident = p
                 break
 
