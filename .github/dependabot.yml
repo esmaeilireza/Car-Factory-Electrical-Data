@@ -1,38 +1,85 @@
 version: 2
 updates:
-  # Maintain dependencies for GitHub Actions
+  # ---------------------------------------------------------------------------
+  # GitHub Actions
+  # ---------------------------------------------------------------------------
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
     ignore:
-      # Ignore major version bumps for core actions to prevent instability
-      # v7 of checkout/setup-python has known compatibility issues with current runner images
+      # v7 of checkout/setup-python migrated to ESM/Node.js 24 and changed 
+      # cache-restore behavior. Bumping both at once broke main with no clear signal.
+      # Block major bumps until each is verified manually against the workflow.
       - dependency-name: "actions/checkout"
         update-types: ["version-update:semver-major"]
       - dependency-name: "actions/setup-python"
         update-types: ["version-update:semver-major"]
 
-  # Maintain dependencies for pip
+  # ---------------------------------------------------------------------------
+  # Python Dependencies (pip)
+  # ---------------------------------------------------------------------------
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    
     groups:
-      # Group minor and patch updates to reduce PR noise
+      # Group minor and patch updates to reduce PR noise.
+      # Major bumps still arrive individually because they need individual review.
       python-minor-and-patch:
         patterns:
           - "*"
         exclude-patterns:
-          - "llama-cpp-python" # Handle manually due to wheel complexity
-          - "websockets"       # Handled explicitly below
+          # Exclude packages that require manual intervention or have strict compat issues
+          - "llama-cpp-python" 
+          - "websockets"       
+          - "numpy"            
+          - "pandas"           
+          - "scipy"            
+
     ignore:
-      # CRITICAL: websockets 17.x is incompatible with uvicorn 0.53 / fastapi current pin
-      # This prevents the "Install dependencies" CI failure
+      # CRITICAL: websockets 17.x is backwards-incompatible with uvicorn 0.53 
+      # (non-ASCII header handling changed upstream). The pip resolver fails 
+      # when Dependabot bumps websockets to 17.x against uvicorn's pinned range.
       - dependency-name: "websockets"
         update-types: ["version-update:semver-major"]
-      
+
+      # CRITICAL: NumPy 2.5.0+ requires Python >= 3.12.
+      # Our CI runs on Python 3.11. Auto-bumping causes "No matching distribution found".
+      # Pin manually to 2.4.x series which supports 3.11.
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
       # llama-cpp-python requires manual wheel installation on Windows/Linux CI
-      # Auto-bumping often fails because pre-built wheels aren't always available instantly
+      # because pre-built wheels aren't always available instantly for new versions.
+      # Block auto-bumps; require a manual upgrade branch + full live verifier run.
       - dependency-name: "llama-cpp-python"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+      # PyModbus 3.7+ renamed ModbusSlaveContext -> ModbusDeviceContext 
+      # and changed ModbusServerContext(slaves=) -> ModbusServerContext(devices=).
+      # Bumping past 3.6.x requires coordinated changes across plc_simulator/, 
+      # backend/, and remediation engine. Block automatic bumps.
+      - dependency-name: "pymodbus"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
