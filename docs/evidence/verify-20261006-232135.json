@@ -1,0 +1,352 @@
+{
+  "generated": "2026-10-06T23:21:35",
+  "mode": {
+    "live": true,
+    "wait": 0,
+    "skip_pytest": false,
+    "skip_cognitive": false,
+    "skip_remediation": false,
+    "sweep": 0
+  },
+  "summary": {
+    "pass": 53,
+    "warn": 0,
+    "fail": 4
+  },
+  "checks": [
+    {
+      "name": "GGUF model file",
+      "status": "PASS",
+      "detail": "1396 MB"
+    },
+    {
+      "name": "source: backend/api.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: backend/database.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: plc_simulator/modbus_server.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: dashboard/streamlit_app.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: hmi/hmi_gui.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/agent.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: models/industrial_agent/llm_reasoner.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "source: obsidian_bridge.py",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Local GGUF model file exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\qwen2.5-coder-1.5b-instruct-q6_k.gguf"
+    },
+    {
+      "name": "Industrial agent directory exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\industrial_agent"
+    },
+    {
+      "name": "agent.py exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\industrial_agent\\agent.py"
+    },
+    {
+      "name": "llm_reasoner.py exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\industrial_agent\\llm_reasoner.py"
+    },
+    {
+      "name": "obsidian_bridge.py exists",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\obsidian_bridge.py"
+    },
+    {
+      "name": "Local Qwen model referenced by cognitive stack",
+      "status": "PASS",
+      "detail": "expected reference in models/industrial_agent or backend"
+    },
+    {
+      "name": "Obsidian vault referenced by cognitive stack",
+      "status": "PASS",
+      "detail": "expected reference to Obsidian vault / incidents / wiki-links"
+    },
+    {
+      "name": "Backend wires industrial agent",
+      "status": "PASS",
+      "detail": "expected backend/api.py to expose or instantiate agent"
+    },
+    {
+      "name": "Dashboard consumes equipment API",
+      "status": "PASS",
+      "detail": "expected dashboard to render connected equipment"
+    },
+    {
+      "name": "PLC simulator exposes fault injection map",
+      "status": "PASS",
+      "detail": "expected PLC source to support HR[150+] fault injection"
+    },
+    {
+      "name": "PLC Modbus :5020",
+      "status": "FAIL",
+      "detail": "NOT RUNNING"
+    },
+    {
+      "name": "Backend :8000",
+      "status": "PASS",
+      "detail": "reachable"
+    },
+    {
+      "name": "Streamlit :8501",
+      "status": "PASS",
+      "detail": "reachable"
+    },
+    {
+      "name": "Dashboard equipment enumerated",
+      "status": "PASS",
+      "detail": "STP-01, WLD-01, PNT-01, ASM-01, UTI-01, UTI-02"
+    },
+    {
+      "name": "Every dashboard device has a fault plan",
+      "status": "PASS",
+      "detail": "all covered"
+    },
+    {
+      "name": "Fault map addresses uniquely allocated",
+      "status": "PASS",
+      "detail": "addresses=[150, 151, 152, 153, 154, 155]"
+    },
+    {
+      "name": "GET /api/health",
+      "status": "PASS",
+      "detail": "status=healthy"
+    },
+    {
+      "name": "Local LLM available in backend",
+      "status": "PASS",
+      "detail": "Qwen loaded"
+    },
+    {
+      "name": "Backend reports expected local GGUF model",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\qwen2.5-coder-1.5b-instruct-q6_k.gguf"
+    },
+    {
+      "name": "All dashboard devices live",
+      "status": "PASS",
+      "detail": "live=6, expected=6, missing=[], extra=[]"
+    },
+    {
+      "name": "Real-unit telemetry values",
+      "status": "PASS",
+      "detail": "sample voltage=373.4905352839607"
+    },
+    {
+      "name": "LLM not echoing prompt example",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "Agent working memory populated",
+      "status": "PASS",
+      "detail": "size=12"
+    },
+    {
+      "name": "Agent reports expected Obsidian vault path",
+      "status": "PASS",
+      "detail": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\data\\scada_vault"
+    },
+    {
+      "name": "Optional /api/vault/status reachable",
+      "status": "PASS",
+      "detail": "keys=['incidents_count', 'status', 'vault_path']"
+    },
+    {
+      "name": "PLC audit at pinned path",
+      "status": "PASS",
+      "detail": "plc_simulator\\audit_log.jsonl"
+    },
+    {
+      "name": "No stray audit_log.jsonl copies",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "agent_audit hash-chain linkage",
+      "status": "PASS",
+      "detail": "4174 records, linkage intact"
+    },
+    {
+      "name": "Agent loop alive (latest entry < 120s)",
+      "status": "PASS",
+      "detail": "last entry 35s old"
+    },
+    {
+      "name": "equipment_data table present",
+      "status": "PASS",
+      "detail": "tables=['alarm_events', 'equipment_data', 'operation_logs', 'sqlite_sequence']"
+    },
+    {
+      "name": "alarm_events table present",
+      "status": "PASS",
+      "detail": "required for statistical memory"
+    },
+    {
+      "name": "Telemetry pipeline LIVE (<15s)",
+      "status": "FAIL",
+      "detail": "1030824 rows, newest=2026-10-06T23:10:03"
+    },
+    {
+      "name": "Theta flowing (payload-fix regression)",
+      "status": "FAIL",
+      "detail": "no theta rows in last 5 min"
+    },
+    {
+      "name": "status column stores TEXT",
+      "status": "PASS",
+      "detail": "types: []"
+    },
+    {
+      "name": "get_equipment_statistics returns sample_count",
+      "status": "PASS",
+      "detail": "60.0 ms"
+    },
+    {
+      "name": "Statistics perf tripwire (<400ms)",
+      "status": "PASS",
+      "detail": "60.0 ms"
+    },
+    {
+      "name": "Vault present",
+      "status": "PASS",
+      "detail": "data\\scada_vault"
+    },
+    {
+      "name": "Vault/Machines/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Vault/Standards/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "Vault/Incidents/ present",
+      "status": "PASS",
+      "detail": "found"
+    },
+    {
+      "name": "6 machine stubs",
+      "status": "PASS",
+      "detail": "6 files"
+    },
+    {
+      "name": "8 ANSI standard stubs",
+      "status": "PASS",
+      "detail": "8 files"
+    },
+    {
+      "name": "Machine stubs contain [[wiki-links]]",
+      "status": "PASS",
+      "detail": "6/6 linked"
+    },
+    {
+      "name": "Obsidian Incidents directory writable",
+      "status": "PASS",
+      "detail": "probe ok"
+    },
+    {
+      "name": "Single ai_engine.py (technical-debt tripwire)",
+      "status": "PASS",
+      "detail": "models\\ai_engine.py"
+    },
+    {
+      "name": "No stray .bak files",
+      "status": "PASS",
+      "detail": "clean"
+    },
+    {
+      "name": "tests/ suite passes",
+      "status": "PASS",
+      "detail": "9 passed in 15.77s"
+    },
+    {
+      "name": "Live probes",
+      "status": "FAIL",
+      "detail": "--live requested but PLC Modbus :5020 is not running"
+    }
+  ],
+  "context": {
+    "root": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data",
+    "model_path": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\qwen2.5-coder-1.5b-instruct-q6_k.gguf",
+    "agent_dir": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\models\\industrial_agent",
+    "vault": "D:\\Machine learning\\data analyze Projects\\phase 3 car-factory-electrical-data\\data\\scada_vault",
+    "equipment_ids": [
+      "STP-01",
+      "WLD-01",
+      "PNT-01",
+      "ASM-01",
+      "UTI-01",
+      "UTI-02"
+    ],
+    "fault_plan": {
+      "STP-01": {
+        "code": 4,
+        "ansi": "ANSI-38",
+        "fault_register": 150
+      },
+      "WLD-01": {
+        "code": 2,
+        "ansi": "ANSI-50",
+        "fault_register": 151
+      },
+      "PNT-01": {
+        "code": 1,
+        "ansi": "ANSI-49",
+        "fault_register": 152
+      },
+      "ASM-01": {
+        "code": 3,
+        "ansi": "ANSI-59",
+        "fault_register": 153
+      },
+      "UTI-01": {
+        "code": 4,
+        "ansi": "ANSI-38",
+        "fault_register": 154
+      },
+      "UTI-02": {
+        "code": 1,
+        "ansi": "ANSI-49",
+        "fault_register": 155
+      }
+    },
+    "sweep_count": 6,
+    "sweep_summary": {},
+    "remediation_summary": {}
+  }
+}
