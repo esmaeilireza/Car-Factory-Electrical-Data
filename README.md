@@ -625,14 +625,6 @@ The interconnected incident history viewed in Obsidian. Nodes represent equipmen
 
 ![NEXUS SCADA Demo](./docs/demo/nexus-demo.gif)
 
-Suggested demo flow:
-
-1. Dashboard shows normal operation.
-2. A fault is injected or an anomaly appears.
-3. Rule engine emits a HIGH finding.
-4. Local LLM produces a diagnosis.
-5. Obsidian incident file appears.
-6. Obsidian graph shows linked machine, standard, and incident nodes.
 
 ---
 
