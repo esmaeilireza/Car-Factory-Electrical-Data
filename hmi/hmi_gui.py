@@ -233,7 +233,7 @@ class NexusHMISimulator:
 
         tk.Label(
             title_frame,
-            text="⚡ INDUSTRIAL HMI PROTOTYPE - CAR FACTORY + NEXUS AI SUPERVISOR SUPERVISOR",
+            text="⚡ INDUSTRIAL HMI PROTOTYPE - CAR FACTORY + NEXUS AI SUPERVISOR",
             font=("Arial", 16, "bold"),
             bg=COLORS["bg_header"],
             fg=COLORS["cyan"],
