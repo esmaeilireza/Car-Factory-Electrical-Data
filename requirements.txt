@@ -1,3 +1,15 @@
+# -----------------------------------------------------------------------------
+# NEXUS SCADA - Local Development Requirements
+# -----------------------------------------------------------------------------
+# Includes all CI dependencies PLUS local-only tools.
+#
+# IMPORTANT: llama-cpp-python requires a C++ compiler or pre-built wheels.
+# On Windows/macOS/Linux without build tools, install the wheel manually:
+#   pip install ./llama_cpp_python-0.3.36-cpXXX-cpXXX-win_amd64.whl
+# Then run: pip install -r requirements.txt
+# -----------------------------------------------------------------------------
+
+# --- Same frozen core stack as CI ---
 altair==6.3.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
@@ -15,7 +27,6 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
-llama-cpp-python==0.3.36
 MarkupSafe==3.0.4
 narwhals==2.26.0
 numpy==2.4.6
@@ -47,33 +58,6 @@ uvicorn==0.53.0
 watchdog==6.0.0
 websockets==16.1.1
 
-# -----------------------------------------------------------------------------
-# Manual step required: llama-cpp-python
-# -----------------------------------------------------------------------------
-# pip cannot build llama-cpp-python from source on Windows without a C++
-# compiler. Install the pre-built wheel FIRST, then install this file:
-#
-#   1. Download the matching wheel:
-#      https://github.com/abetlen/llama-cpp-python/releases/tag/v0.3.36
-#      (Choose the wheel matching your Python version, e.g. cp312-win_amd64)
-#
-#   2. Install the wheel locally:
-#      pip install ./llama_cpp_python-0.3.36-cpXXX-cpXXX-win_amd64.whl
-#
-#   3. Then install the rest of the file:
-#      pip install -r requirements.txt
-#
-# If v0.3.36 has no prebuilt wheel for your Python version, fall back to
-# v0.3.35 by editing the pin above to llama-cpp-python==0.3.35 and
-# downloading that wheel instead:
-#      https://github.com/abetlen/llama-cpp-python/releases/tag/v0.3.35
-#
-# Alternative if you have Visual Studio Build Tools installed:
-#   pip install llama-cpp-python==0.3.36 \
-#     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-#
-# Rationale for the exact pin: CI does not install this package (see
-# requirements-ci.txt); the pin exists only for local developers. Bump
-# only when a matching wheel exists AND a full live verifier run has
-# passed.
-# -----------------------------------------------------------------------------
+# --- Local Only Dependencies ---
+# Pinned to 0.3.36. Ensure matching wheel is installed if build fails.
+llama-cpp-python==0.3.36

@@ -18,9 +18,7 @@ updates:
       prefix: "ci"
       include: "scope"
     ignore:
-      # v7 of checkout/setup-python migrated to ESM/Node.js 24 and changed 
-      # cache-restore behavior. Bumping both at once broke main with no clear signal.
-      # Block major bumps until each is verified manually against the workflow.
+      # Block major bumps for core actions to prevent ESM/Node.js compatibility breaks
       - dependency-name: "actions/checkout"
         update-types: ["version-update:semver-major"]
       - dependency-name: "actions/setup-python"
@@ -45,41 +43,62 @@ updates:
       include: "scope"
     
     groups:
-      # Group minor and patch updates to reduce PR noise.
-      # Major bumps still arrive individually because they need individual review.
-      python-minor-and-patch:
+      # Group minor/patch updates for NON-CRITICAL packages only.
+      # We exclude the frozen core stack below.
+      python-non-core-updates:
         patterns:
           - "*"
         exclude-patterns:
-          # Exclude packages that require manual intervention or have strict compat issues
-          - "llama-cpp-python" 
-          - "websockets"       
-          - "numpy"            
-          - "pandas"           
-          - "scipy"            
+          # FROZEN CORE WEB STACK (Manual Upgrade Required)
+          - "fastapi"
+          - "starlette"
+          - "uvicorn"
+          - "pydantic"
+          - "pydantic-core"
+          
+          # FROZEN DATA SCIENCE (Python Version Constraints)
+          - "numpy"
+          - "pandas"
+          - "scipy"
+          
+          # SPECIAL HANDLING REQUIRED
+          - "llama-cpp-python"
+          - "websockets"
+          - "pymodbus"
 
     ignore:
-      # CRITICAL: websockets 17.x is backwards-incompatible with uvicorn 0.53 
-      # (non-ASCII header handling changed upstream). The pip resolver fails 
-      # when Dependabot bumps websockets to 17.x against uvicorn's pinned range.
+      # CRITICAL: websockets 17.x is incompatible with uvicorn 0.53
       - dependency-name: "websockets"
         update-types: ["version-update:semver-major"]
 
-      # CRITICAL: NumPy 2.5.0+ requires Python >= 3.12.
-      # Our CI runs on Python 3.11. Auto-bumping causes "No matching distribution found".
-      # Pin manually to 2.4.x series which supports 3.11.
+      # CRITICAL: NumPy 2.5+ requires Python >= 3.12. CI is 3.11.
       - dependency-name: "numpy"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
-      # llama-cpp-python requires manual wheel installation on Windows/Linux CI
-      # because pre-built wheels aren't always available instantly for new versions.
-      # Block auto-bumps; require a manual upgrade branch + full live verifier run.
+      # CRITICAL: PyModbus 3.7+ has breaking API changes (Slave->Device)
+      - dependency-name: "pymodbus"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+
+      # MANUAL WHEEL INSTALLATION REQUIRED
       - dependency-name: "llama-cpp-python"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
-      # PyModbus 3.7+ renamed ModbusSlaveContext -> ModbusDeviceContext 
-      # and changed ModbusServerContext(slaves=) -> ModbusServerContext(devices=).
-      # Bumping past 3.6.x requires coordinated changes across plc_simulator/, 
-      # backend/, and remediation engine. Block automatic bumps.
-      - dependency-name: "pymodbus"
-        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # FROZEN STACK: Prevent Dependabot from touching these at all.
+      # Upgrades must be done manually after verifying full compatibility.
+      - dependency-name: "fastapi"
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      
+      - dependency-name: "starlette"
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      
+      - dependency-name: "uvicorn"
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      
+      - dependency-name: "pydantic"
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      
+      - dependency-name: "pydantic-core"
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      
+      - dependency-name: "pandas"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

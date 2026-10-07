@@ -1,3 +1,15 @@
+# -----------------------------------------------------------------------------
+# NEXUS SCADA - CI Requirements
+# -----------------------------------------------------------------------------
+# This file is used by .github/workflows/ci.yml on Python 3.11.
+# It excludes local-development-only dependencies that cannot be built 
+# easily on GitHub-hosted runners (e.g., llama-cpp-python).
+#
+# STRATEGY: Freeze core web stack to prevent Dependabot resolution conflicts.
+# Do not modify pydantic/fastapi/starlette/uvicorn pins without running 
+# 'pip install -r requirements-ci.txt' locally first.
+# -----------------------------------------------------------------------------
+
 altair==6.3.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
@@ -7,6 +19,9 @@ certifi==2026.7.22
 charset-normalizer==3.5.2
 click==8.5.0
 diskcache==5.6.3
+
+# CORE WEB STACK (FROZEN FOR COMPATIBILITY)
+# fastapi 0.141.1 is stable with starlette 1.6.0 and pydantic 2.13.5
 fastapi==0.141.1
 h11==0.16.0
 httptools==0.8.0
@@ -17,6 +32,9 @@ jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 MarkupSafe==3.0.4
 narwhals==2.26.0
+
+# DATA SCIENCE (PINNED FOR PY3.11 SUPPORT)
+# numpy 2.4.x is the last series supporting Python 3.11. 2.5+ requires 3.12.
 numpy==2.4.6
 packaging==26.3
 pandas==3.0.6
@@ -24,8 +42,14 @@ pillow==12.3.0
 plotly==7.1.0
 protobuf==7.36.2
 pyarrow==25.0.1
-pydantic==2.46.5
+
+# VALIDATION ENGINE (FROZEN PAIR)
+# pydantic 2.13.5 strictly requires pydantic-core 2.46.5.
+# Do NOT bump one without the other.
+pydantic==2.13.5
 pydantic_core==2.46.5
+
+# VISUALIZATION & UTILS
 pydeck==0.9.3
 pymodbus==3.6.9
 pytest==9.1.1
@@ -35,6 +59,9 @@ referencing==0.37.0
 requests==2.34.2
 rpds-py==2026.6.3
 six==1.17.0
+
+# ASGI SERVER STACK (FROZEN FOR COMPATIBILITY)
+# starlette 1.6.0 is compatible with fastapi 0.141.1
 starlette==1.6.0
 streamlit==1.64.0
 toml==0.10.2
@@ -44,4 +71,7 @@ tzdata==2026.5
 urllib3==2.8.0
 uvicorn==0.53.0
 watchdog==6.0.0
-websockets==16
+
+# WEBSOCKETS (FROZEN MAJOR VERSION)
+# uvicorn 0.53.0 expects websockets < 17.0 due to API changes in 17.x
+websockets==16.1.1
