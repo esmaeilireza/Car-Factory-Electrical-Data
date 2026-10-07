@@ -594,14 +594,6 @@ This is **intentional safety behaviour**, not a pipeline failure. The verifier r
 <a id="visuals"></a>
 ## 🖼️ Visual Evidence & Demo
 
-Before public release, add the following assets to the repository:
-
-```text
-docs/screenshots/dashboard.png
-docs/screenshots/HMI Panel.JPG
-docs/screenshots/obsidian-graph.png
-docs/demo/nexus-demo.gif
-```
 
 ### Live Dashboard (Streamlit)
 
