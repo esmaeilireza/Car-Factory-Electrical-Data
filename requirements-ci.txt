@@ -63,7 +63,7 @@ six==1.17.0
 # ASGI SERVER STACK (FROZEN FOR COMPATIBILITY)
 # starlette 1.6.0 is compatible with fastapi 0.141.1
 starlette==1.6.0
-streamlit==1.64.0
+streamlit==1.65.0
 toml==0.10.2
 typing-inspection==0.4.4
 typing_extensions==4.16.0
