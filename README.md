@@ -86,7 +86,7 @@ The system enforces a strict **Single Source of Truth** topology. The PLC simula
 │                     FastAPI Backend (Uvicorn)                      │
 │   ┌──────────────┐   ┌────────────────   ┌────────────────────  │
 │   │ SQLite (WAL) │   │ TTL API Cache  │   │ Industrial Agent   │  │
-│   └──────────────┘   └────────────────┘   └─────────┬──────────┘  │
+│   └──────────────┘   └────────────────┘   └───────────────────┘  │
 └──────────────────────────────────────────────────────┼─────────────┘
            │                                           │
            ▼                                           ▼
@@ -598,15 +598,26 @@ Before public release, add the following assets to the repository:
 
 ```text
 docs/screenshots/dashboard.png
+docs/screenshots/HMI Panel.JPG
 docs/screenshots/obsidian-graph.png
 docs/demo/nexus-demo.gif
 ```
 
-### Live Dashboard
+### Live Dashboard (Streamlit)
+
+The primary analytical interface showing real-time telemetry, 24-hour trends, and cognitive alerts.
 
 ![NEXUS SCADA Dashboard](./docs/screenshots/dashboard.png)
 
+### Native Operator HMI (Tkinter)
+
+The lightweight, responsive Human-Machine Interface for direct operator interaction. This panel provides immediate visibility into equipment states (RUN/STOP/LOCKOUT), ANSI trip indications, and manual override capabilities without the overhead of a web browser.
+
+![NEXUS SCADA HMI Panel](./docs/screenshots/HMI%20Panel.JPG)
+
 ### Obsidian Knowledge Graph
+
+The interconnected incident history viewed in Obsidian. Nodes represent equipment, ANSI standards, and specific incidents, forming a navigable root-cause graph.
 
 ![Obsidian Incident Graph](./docs/screenshots/obsidian-graph.png)
 
@@ -880,3 +891,4 @@ This note is included to preserve transparency and accurately represent the inte
   <i>MIT License © 2026 Nexus SCADA Team</i>
 
 </div>
+```
